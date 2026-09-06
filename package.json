@@ -1,0 +1,29 @@
+{
+  "name": "pothos-engine",
+  "version": "0.2.0",
+  "description": "Pothos（波索斯）——以「可失去」为地基的、完全可观测的依恋动力学引擎。事件溯源，状态 = fold(events)。",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/main.ts",
+    "start": "tsx src/server/main.ts",
+    "mcp": "tsx src/mcp/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.0"
+  }
+}

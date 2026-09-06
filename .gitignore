@@ -1,0 +1,18 @@
+node_modules/
+dist/
+*.log
+.env
+.pothos-data/
+exams/data/
+exams/results/
+.aislop/
+.audit/*.log
+.audit/*.ndjson
+
+# 设计文档（未公开，仅本地磁盘）
+docs/情感引擎-设计草案-v0.1.2.md
+docs/情感引擎-技术实现文档-v0.1.0.md
+docs/情感引擎-红队二审定级报告-2026-09-04.md
+docs/情感引擎-红队三审定级报告-2026-09-06.md
+docs/代码审查报告-2026-09-06.md
+docs/设计债务清单-2026-09-06.md

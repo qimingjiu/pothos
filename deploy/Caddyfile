@@ -1,0 +1,12 @@
+{$DOMAIN} {
+	# 玻璃房 + MCP HTTP 面（SSE 走同源反代）
+	reverse_proxy engine:7788
+	encode gzip zstd
+
+	# 观测者协议：token 只在首次访问出现在 URL（此后 HttpOnly cookie 接管）
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
+}

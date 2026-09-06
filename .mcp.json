@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pothos": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp/main.ts"],
+      "env": {
+        "POTHOS_MCP_SIDE": "observer",
+        "POTHOS_BASE_URL": "http://127.0.0.1:7788"
+      }
+    }
+  }
+}
