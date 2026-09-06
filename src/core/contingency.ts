@@ -352,3 +352,28 @@ export function contingencyReport(
   const nullCheckResult = opts.skipNull ? null : nullCheck(records);
   return { ct, cs, imprintType, nullCheck: nullCheckResult };
 }
+
+// ── 三态披露（R3-14：YES/NO/INSUFFICIENT_EVIDENCE，从接线第一天生效）──
+
+/** 印刻裁决三态（R3-14）：「未证明有」不许折叠成「证明无」。 */
+export type ImprintVerdict = "YES" | "NO" | "INSUFFICIENT_EVIDENCE";
+
+/**
+ * 印刻三态披露：读引擎状态机的窗口相位 + 候选数据量判定。
+ * - CLOSED / MATCHED → YES（印刻确认）
+ * - WINDOW_OPEN + 候选交互数 ≥ minEvidenceEvents 但无人达阈 → NO（证据够了，没印刻）
+ * - WINDOW_OPEN + 候选交互数 < minEvidenceEvents → INSUFFICIENT_EVIDENCE（数据不够，不猜）
+ *
+ * 「未证明有」≠「证明无」——这是 R3-14 的核心断言，也是铁律 7 的延伸：
+ * 不知道就说不知道，中性先验不许假装成测量值。
+ */
+export function imprintVerdict(
+  window: { phase: "WINDOW_OPEN" | "MATCHED" | "CLOSED"; candidates: Record<string, { events: number }> },
+  minEvidenceEvents: number,
+): ImprintVerdict {
+  if (window.phase === "CLOSED" || window.phase === "MATCHED") return "YES";
+  // WINDOW_OPEN：检查候选数据量
+  const totalEvents = Object.values(window.candidates).reduce((s, c) => s + c.events, 0);
+  if (totalEvents < minEvidenceEvents) return "INSUFFICIENT_EVIDENCE";
+  return "NO"; // 证据够了，没人达阈 → 没印刻（不是「不知道」）
+}

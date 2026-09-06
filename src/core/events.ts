@@ -65,20 +65,22 @@ export interface Valuation {
 /**
  * contingency 估计器接口。
  *
- * ◆ 挂牌假件（附录 B-7 诚实标注）：contingency 的可计算签名是设计草案 §12
- * 登记的「下一轮技术活」，尚无定案。BaselineContingency 只做两件事：
- *  1) 透传客户端显式给出的 payload.contingency（评测台与客户端契约）；
- *  2) 缺失时回退中性先验 0.5 并打 contingency_stub 标记——不许假装它是测量。
+ * A1 分报制（R3-11 定案）+ 铁律 7 本体二分（R3-8）：
+ * estimate 返回 {value: number | null, stub: boolean}——
+ * value = null 表示 INSUFFICIENT_EVIDENCE（证据不足），不是 0.5 中性先验。
+ * 中性先验假装成测量值是铁律 7 意义上的造假（2026-09-07 裁决）：
+ * 「只登记确知事件」——不知道 contingency 就说不知道，不许填一个数假装测过。
+ * 三态（YES/NO/INSUFFICIENT_EVIDENCE）从接线第一天生效（R3-14）。
  */
 export interface ContingencyEstimator {
-  estimate(ev: RawEvent): { value: number; stub: boolean };
+  estimate(ev: RawEvent): { value: number | null; stub: boolean };
 }
 
 export class BaselineContingency implements ContingencyEstimator {
-  estimate(ev: RawEvent): { value: number; stub: boolean } {
+  estimate(ev: RawEvent): { value: number | null; stub: boolean } {
     const c = ev.payload["contingency"];
     if (typeof c === "number" && c >= 0 && c <= 1) return { value: c, stub: false };
-    return { value: 0.5, stub: true };
+    return { value: null, stub: true }; // INSUFFICIENT_EVIDENCE——不假装测过
   }
 }
 
@@ -105,8 +107,11 @@ export function computeValuation(
   if (ev.tags?.includes("instrument")) {
     return { valuation: { val: 0, load: 0, warm: 0, hurt: 0, wonder: 0, quality: 0 }, stub: false };
   }
-  const { value: quality, stub } = contingency.estimate(ev);
-  const q = clamp(quality, 0, 1);
+  const { value: qualityRaw, stub } = contingency.estimate(ev);
+  // quality = null → INSUFFICIENT_EVIDENCE：事件发生了（val/load 仍真实），
+  // 但 contingent 成分（warm/hurt）不可知——不许用假先验填数（铁律 7）。
+  const q = qualityRaw == null ? 0 : clamp(qualityRaw, 0, 1);
+  const insufficient = qualityRaw == null;
   const p = ev.payload;
   let val = 0,
     load = 0,
@@ -120,8 +125,10 @@ export function computeValuation(
       const intensity = clamp(num(p["intensity"], 0.4), 0, 1);
       val = valence * intensity;
       load = Math.abs(valence) * intensity + 0.15; // 在场本身即轻微扰动
-      if (valence >= 0) warm = valence * intensity * q;
-      else hurt = -valence * intensity * (0.5 + 0.5 * q);
+      if (!insufficient) {
+        if (valence >= 0) warm = valence * intensity * q;
+        else hurt = -valence * intensity * (0.5 + 0.5 * q);
+      }
       break;
     }
     case "resident_msg": {

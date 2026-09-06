@@ -17,8 +17,10 @@ import {
   nullCheck,
   contingencyReport,
   classifyImprintType,
+  imprintVerdict,
   type InteractionRecord,
 } from "../../src/core/contingency.js";
+import { computeValuation } from "../../src/core/events.js";
 
 const T0 = 1_700_000_000_000;
 const MIN = 60_000;
@@ -201,5 +203,49 @@ describe("分报制总报告（R3-11：无乘积）", () => {
     // 确认没有乘积字段（contingencySum 已废）
     expect((r as unknown as Record<string, unknown>)["contingencySum"]).toBeUndefined();
     expect((r as unknown as Record<string, unknown>)["product"]).toBeUndefined();
+  });
+});
+
+describe("铁律 7 · contingency null = INSUFFICIENT_EVIDENCE（不假装测过）", () => {
+  it("computeValuation：无 contingency 时 warm/hurt 归零，val/load 仍真实", () => {
+        // 有 contingency：warm = valence·intensity·q
+    const withC = computeValuation(
+      { kind: "user_msg", ts: T0, payload: { valence: 0.8, intensity: 0.9, contingency: 0.95 } },
+    );
+    expect(withC.valuation.warm).toBeCloseTo(0.8 * 0.9 * 0.95, 4);
+    // 无 contingency：warm = 0（不假装知道 contingent 成分），val/load 仍从 valence/intensity 计算
+    const noC = computeValuation(
+      { kind: "user_msg", ts: T0, payload: { valence: 0.8, intensity: 0.9 } },
+    );
+    expect(noC.valuation.warm).toBe(0);
+    expect(noC.valuation.hurt).toBe(0);
+    expect(noC.valuation.val).toBeCloseTo(0.8 * 0.9, 4); // 事件发生了
+    expect(noC.valuation.load).toBeGreaterThan(0); // 在场即扰动
+    expect(noC.stub).toBe(true);
+  });
+
+  it("负 valence 无 contingency：hurt 归零（不假装知道冲突的 contingent 成分）", () => {
+        const noC = computeValuation(
+      { kind: "user_msg", ts: T0, payload: { valence: -0.8, intensity: 0.9 } },
+    );
+    expect(noC.valuation.hurt).toBe(0);
+    expect(noC.valuation.val).toBeLessThan(0); // 负向冲量仍真实
+    expect(noC.valuation.load).toBeGreaterThan(0);
+  });
+
+  it("imprintVerdict 三态：YES / NO / INSUFFICIENT_EVIDENCE", () => {
+        // CLOSED / MATCHED → YES
+    expect(imprintVerdict({ phase: "CLOSED", candidates: {} }, 5)).toBe("YES");
+    expect(imprintVerdict({ phase: "MATCHED", candidates: { a: { events: 3 } } }, 5)).toBe("YES");
+    // WINDOW_OPEN + 证据不足 → INSUFFICIENT_EVIDENCE
+    expect(imprintVerdict({ phase: "WINDOW_OPEN", candidates: { a: { events: 2 } } }, 5)).toBe("INSUFFICIENT_EVIDENCE");
+    // WINDOW_OPEN + 证据够了但没人达阈 → NO
+    expect(imprintVerdict({ phase: "WINDOW_OPEN", candidates: { a: { events: 6 } } }, 5)).toBe("NO");
+  });
+
+  it("「未证明有」≠「证明无」：INSUFFICIENT_EVIDENCE 不折叠成 NO", () => {
+        const v = imprintVerdict({ phase: "WINDOW_OPEN", candidates: { a: { events: 1 } } }, 5);
+    expect(v).toBe("INSUFFICIENT_EVIDENCE");
+    expect(v).not.toBe("NO"); // 核心断言：不许折叠
   });
 });
