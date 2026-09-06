@@ -187,6 +187,7 @@ EU mean = 0.740，**EA mean = 0.420**。中英 EU 无差（双语对齐好，dec
 - [x] SemEval EI-reg 考场（`src/declared/exams/`）+ 基线跑分
 - [x] EQ-Bench 考场 + 基线跑分
 - [x] EmoBench 考场 + 基线跑分
-- [ ] 网关部署形态的 HTTP 传输实现（OpenAI 兼容面）——接真实住户时做
+- [x] 网关桥（DeclaredGateway）：监听 resident_msg → 分类器 → declared 事件入库（幂等；src/declared/gateway.ts + CLI gateway-run.ts）
+- [ ] 网关生产形态：PG 存储 + HTTP 模式连远程引擎（当前 CLI = memory 模式样例）
 - [ ] 盲评流程（判官裁决调用 + panel 编排）——归 R3-8 缝合后的探针轨/评测台，契约已备好载荷 schema
 - [x] 判官锚点集 v0 骨架：F1 类目入册（[judge-锚点集-v0](judge-锚点集-v0.md)）；F1 具体题集与施测 runner 待判官上岗前建

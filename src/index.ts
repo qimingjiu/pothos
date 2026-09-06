@@ -24,6 +24,7 @@ export * from "./bench/workspace.js";
 export * from "./bench/bench.js";
 export * from "./declared/contract.js";
 export * from "./declared/classifier.js";
+export { DeclaredGateway, type GatewayOpts, type GatewayResult } from "./declared/gateway.js";
 export * from "./probe/track.js";
 export * from "./service.js";
 export { PothosClient, PothosApiError } from "./client/sdk.js";
