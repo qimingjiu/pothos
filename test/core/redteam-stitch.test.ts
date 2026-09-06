@@ -87,7 +87,7 @@ describe("R3-15 · MATCHED 负载冻结", () => {
     // 候选 contingency 已累积（冻结的是触发不是累积）
     const cand = st.window.candidates[handle];
     expect(cand).toBeDefined();
-    expect(cand!.contingencySum).toBeGreaterThanOrEqual(DEFAULT_PARAMS.windowMatchTheta);
+    expect(cand!.ctSum).toBeGreaterThanOrEqual(DEFAULT_PARAMS.windowMatchTheta);
   });
 
   it("负载回落后 MATCHED 解冻触发（延迟关窗 = 宁可延迟不可带混淆）", () => {

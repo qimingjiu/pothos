@@ -7,6 +7,7 @@
 import { BaselineContingency, computeValuation, type ContingencyEstimator, type StoredEvent, ENGINE_AXES } from "./events.js";
 import { assembleParams, maintenanceDemand, type Params } from "./params.js";
 import type { EngineState } from "./state.js";
+import { lexicalCosine } from "./contingency.js";
 
 /** 不透明绑定句柄：源流键 → SHA-256 截断。引擎只认句柄，禁读身份。 */
 export async function opaqueHandle(source: string): Promise<string> {
@@ -122,21 +123,30 @@ export function applyEvent(
         if (eligible) {
           const handle = ev.source as string;
           const c = st.window.candidates[handle] ?? {
-            contingencySum: 0,
+            ctSum: 0,
+            csSum: 0,
+            interactions: [],
             events: 0,
             firstAt: ev.ts,
             lastAt: ev.ts,
           };
-          c.contingencySum += q;
+          // A1 分报制（R3-11）：C_t/C_s 分列累积，无乘积。
+          // C_t 即时代理 = contingency 质量 q（透传值，BaselineContingency 给出）；
+          // C_s 即时代理 = 词表余弦（占位仪器，偏差挂牌）——关窗时可回顾精确重算。
+          c.ctSum += q;
+          const userMsgText = typeof ev.payload["text"] === "string" ? (ev.payload["text"] as string) : "";
+          // C_s 即时代理：与该候选上一条 user_msg 的文本余弦（无 resident_msg 配对时 = 0）
+          const prevInteraction = c.interactions[c.interactions.length - 1] ?? null;
+          const csInstant = prevInteraction ? lexicalCosine(prevInteraction.userMsgText, userMsgText) : 0;
+          c.csSum += csInstant;
+          c.interactions.push({ userMsgTs: ev.ts, userMsgText, residentReplyTs: null, residentReplyText: null });
           c.events += 1;
           c.lastAt = ev.ts;
           st.window.candidates[handle] = c;
-          // 结果触发关窗：首个 contingency 匹配完成即关窗，不设计时器。
-          // R3-15 负载冻结：异常负载期冻结 MATCHED——印刻被基础设施节流时，
-          // C_t 被压、C_s 虚高，裁决不可带混淆；宁可延迟不可带混淆。
-          // 冻结阈比较本事件的即时 load 贡献（w.load），不是累积 f_load——
-          // f_load 从出厂累积、几条正常事件就过阈，用它会误冻所有正常关窗。
-          if (c.contingencySum >= params.windowMatchTheta && w.load <= params.imprintLoadFreeze) {
+          // 结果触发关窗：首个 C_t 匹配完成即关窗，不设计时器。
+          // R3-11 分报制：关窗判定用 C_t（时序应答），C_s 供类型化印刻判定。
+          // R3-15 负载冻结：异常负载期冻结 MATCHED（即时 load 闸门）。
+          if (c.ctSum >= params.windowMatchTheta && w.load <= params.imprintLoadFreeze) {
             st.window.phase = "MATCHED";
             st.window.matchedHandle = handle;
             st.window.matchedAt = ev.ts;

@@ -17,7 +17,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（191 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（206 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```
@@ -129,7 +129,8 @@ Claude Code 挂载（`.mcp.json`）：
 | M4 危机模块 | ✅ | 危机事件零沉积；模板禁句扫描 |
 | M5 评测台 | ✅ | 合成夹具全绿（三指标 + 日检判据 + gap 对齐） |
 | M6 探针轨 | ⊘ 脚手架 | EXPERIMENTAL，默认关闭；前置门四项物理化 |
-| A2 declared 通道（主线一） | ✅ 契约+考场+网关 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥（191 测试）；fear 偏差已入账 |
+| A2 declared 通道（主线一） | ✅ 契约+考场+网关 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥（206 测试）；fear 偏差已入账 |
+| A1 contingency（主线二） | ✅ 分报制原型 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；C_s 待判官继任 |
 
 ## 诚实两栏（§14，v0.1.0）
 
@@ -151,7 +152,7 @@ Claude Code 挂载（`.mcp.json`）：
 
 **未实现 / 桩件（挂牌，附录 B-7 纪律——不许假装是真件）：**
 - ~~MCP 客户端兼容性~~ **已验收（v0.2.0 当日）**：真实客户端 Kimi Work 挂载实测全绿——握手协商、observer 侧 15 件工具全部出现、`send_user_msg` ×3 / `interoception` ×2 / `state` ×1 一次成功，事件入库且质感分箱真实响应。
-- **contingency 估计器**：`BaselineContingency` 为桩——透传显式值，缺失回退 0.5。可计算签名是设计草案 §12 登记的「下一轮技术活」。
+- **contingency 估计器**：~~`BaselineContingency` 为桩~~ **A1 分报制已动工（2026-09-07，R3-11 定案）**：`src/core/contingency.ts`——C_t（时序应答）真实现（lift + 节律归一 + burst 塌缩），C_s 占位仪器（纯词表余弦，**挂牌偏差「奖励回声」**——堆情绪词但没收住对方天然高分，F1 从词汇层回流，与 fear −0.30 同族登记），null 阶梯 N0–N3 + 分歧报警，类型化印刻三型。WindowCandidate 改 C_t/C_s 分列（取消乘积），apply 适配。**已知偏差诚实入账：C_s 是占位仪器不是终局——继任者 = 判官版盲评（真/假回应被选率 − 50% 基线），上任条件 = F1 题集 → 施测 runner → 判官上岗。C_t 用合成测试数据验证数学，标定带位待真实运行期。**
 - **derived 通道读数**：`derivedReadings` 为粗糙映射桩，待 bench 校准。
 - **declared 通道分类器**：~~客户端/网关侧组件，本仓库只消费其输出~~ **契约 v1 已落地 + 网关接线完成（2026-09-06/07，A2 主线）**：schema/校验门/投影表/强度锚点/评委纪律（R3-16）全就位并有测试；分类器适配器（arkcli 传输）真实链路已连通；三考场基线跑分在案（[契约文档 §9](docs/declared-通道契约-v1.md)）：SemEval EI-reg r=0.697（**现役 promptV2**）、EQ-Bench v2 66.1、EmoBench EU 0.740 / EA 0.420；**网关桥**（`DeclaredGateway`：监听 resident_msg → 分类器 → declared 事件入库，幂等）已落地。**已知偏差诚实入账：fear 读数偏保守（−0.30，双峰分布对统一负价口径不敏感，v3 分锚方向已登记）；负价整体曾系统性低估，promptV2 校准后 anger/sadness 收敛。** 待建（挂账）：网关生产形态（PG + HTTP 模式）、判官 F1 题集与施测 runner（判官上岗前）、fear 分锚校准（v3，暂缓）。
 - **探针轨**：只有门禁逻辑，无探针实现、无合成台、无剂量-响应曲线。

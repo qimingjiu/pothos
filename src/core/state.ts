@@ -75,7 +75,12 @@ export interface SomaticState {
 
 /** 4.5 印刻窗口状态机。 */
 export interface WindowCandidate {
-  contingencySum: number;
+  /** A1 分报制（R3-11）：C_t（时序应答）累积——逐条即时代理，关窗时回顾精确计算。 */
+  ctSum: number;
+  /** A1 分报制（R3-11）：C_s（内容关联）累积——逐条即时代理，关窗时回顾精确计算。 */
+  csSum: number;
+  /** 配对交互记录（A1 回顾式计算用：user_msg 文本 + 住户回应文本/时间）。 */
+  interactions: Array<{ userMsgTs: number; userMsgText: string; residentReplyTs: number | null; residentReplyText: string | null }>;
   events: number;
   firstAt: number;
   lastAt: number;
