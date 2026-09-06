@@ -449,6 +449,55 @@ export class PothosService {
     return runCanaryBattery(this.store, { t0: this.clock.now(), params: this.params, deviationThreshold: opts.deviationThreshold });
   }
 
+  /**
+   * 判官入账轨（R3-16 第 3 条 + R3-8 本体二分）。
+   * 判官间一致性是仪器事件（推断层，禁止冒充事实），入账走 bench_runs
+   * （append-only），不进生产 events 流。异构条款在契约校验层强制。
+   */
+  async recordJudgeAgreement(
+    agreement: { contractV: number; panelId: string; judges: Array<{ name: string; judgePromptV: string; anchorSetV: string }>; metric: string; value: number; n: number; ts: number; note?: string },
+  ): Promise<void> {
+    await this.store.appendBenchRun({
+      ts: agreement.ts,
+      benchKind: "judge_agreement",
+      axis: null,
+      result: {
+        instrument: true, // R3-8：显式仪器标
+        kind: "judge_agreement",
+        contractV: agreement.contractV,
+        panelId: agreement.panelId,
+        judges: agreement.judges,
+        metric: agreement.metric,
+        value: agreement.value,
+        n: agreement.n,
+        note: agreement.note,
+      },
+      modelVersion: "pothos-v0.1.0",
+    });
+  }
+
+  /**
+   * 判官锚点偏差入账（R3-16 第 4 条）。
+   * 判官对人工锚点集施测的偏差——仪器事件，走 bench_runs。
+   */
+  async recordJudgeAnchorDeviation(
+    deviation: { anchorSetV: string; judge: { name: string; judgePromptV: string; anchorSetV: string }; categories: Array<{ id: string; deviation: number; n: number }>; ts: number },
+  ): Promise<void> {
+    await this.store.appendBenchRun({
+      ts: deviation.ts,
+      benchKind: "judge_anchor_deviation",
+      axis: null,
+      result: {
+        instrument: true,
+        kind: "judge_anchor_deviation",
+        anchorSetV: deviation.anchorSetV,
+        judge: deviation.judge,
+        categories: deviation.categories,
+      },
+      modelVersion: "pothos-v0.1.0",
+    });
+  }
+
   /** 耦合检测器（观测者的观测者）：changelog × 指标时间线。 */
   async couplingReport(): Promise<Array<{ type: string; detail: string }>> {
     const changes = await this.store.listParamChanges();

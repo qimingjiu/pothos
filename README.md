@@ -20,7 +20,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（143 项：核心 + 不变量 + 加固 + SDK/MCP；11 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（185 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```

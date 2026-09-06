@@ -49,8 +49,8 @@ export const ALLOWED_ROUTES: Array<{ method: string; path: string }> = [
  */
 const EXTERNAL_EVENT_KINDS = ["user_msg", "resident_msg", "world", "declared"];
 
-/** 保留标签由引擎判定：crisis 靠词表扫描，其余来自引擎内部路径。客户端注入一律剥除。 */
-const RESERVED_TAGS = ["crisis", "alert_triggered", "self_generated", "system_text"];
+/** 保留标签由引擎判定：crisis 靠词表扫描，instrument 由引擎内部路径（R3-8 本体二分），其余来自引擎内部路径。客户端注入一律剥除。 */
+export const RESERVED_TAGS = ["crisis", "alert_triggered", "self_generated", "system_text", "instrument"];
 
 const MAX_BODY_BYTES = 64 * 1024;
 

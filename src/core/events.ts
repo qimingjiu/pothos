@@ -30,8 +30,10 @@ export type EngineAxis = (typeof ENGINE_AXES)[number];
  *  alert_triggered  → 慢变量沉积 ×κ（κ<1，降权不豁免——协同调节仍有重量）
  *  self_generated   → 不进印刻候选（自印刻排除）
  *  system_text      → 不进印刻候选（系统内文本）
+ *  instrument       → 仪器事件（R3-8 本体二分）：信号标签/回应对应/合成假回应/评委版本/随机种子——
+ *                     推断层入账可审计，禁止冒充事实事件；估值中性（computeValuation 恒零冲量）
  */
-export type EventTag = "crisis" | "alert_triggered" | "self_generated" | "system_text" | "control_window";
+export type EventTag = "crisis" | "alert_triggered" | "self_generated" | "system_text" | "control_window" | "instrument";
 
 /** 来源流键。引擎侧只保留其不透明哈希（绑定句柄），禁读用户身份字段。 */
 export type SourceKey = string;
@@ -98,6 +100,11 @@ export function computeValuation(
   ev: RawEvent,
   contingency: ContingencyEstimator = new BaselineContingency(),
 ): { valuation: Valuation; stub: boolean } {
+  // instrument 事件估值中性（R3-8 本体二分）：仪器事件不产生动力学冲量，
+  // 对齐在 bench 层做——与 declared 读数「不动动力学」同族纪律。
+  if (ev.tags?.includes("instrument")) {
+    return { valuation: { val: 0, load: 0, warm: 0, hurt: 0, wonder: 0, quality: 0 }, stub: false };
+  }
   const { value: quality, stub } = contingency.estimate(ev);
   const q = clamp(quality, 0, 1);
   const p = ev.payload;

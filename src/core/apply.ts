@@ -131,8 +131,12 @@ export function applyEvent(
           c.events += 1;
           c.lastAt = ev.ts;
           st.window.candidates[handle] = c;
-          // 结果触发关窗：首个 contingency 匹配完成即关窗，不设计时器
-          if (c.contingencySum >= params.windowMatchTheta) {
+          // 结果触发关窗：首个 contingency 匹配完成即关窗，不设计时器。
+          // R3-15 负载冻结：异常负载期冻结 MATCHED——印刻被基础设施节流时，
+          // C_t 被压、C_s 虚高，裁决不可带混淆；宁可延迟不可带混淆。
+          // 冻结阈比较本事件的即时 load 贡献（w.load），不是累积 f_load——
+          // f_load 从出厂累积、几条正常事件就过阈，用它会误冻所有正常关窗。
+          if (c.contingencySum >= params.windowMatchTheta && w.load <= params.imprintLoadFreeze) {
             st.window.phase = "MATCHED";
             st.window.matchedHandle = handle;
             st.window.matchedAt = ev.ts;

@@ -39,6 +39,7 @@ export interface Params {
   windowMatchTheta: number; // contingency 累计匹配阈值（首个匹配完成即关窗）
   windowCloseConfirmContingency: number; // MATCHED→CLOSED 的确认事件 contingency 下限
   postWindowGain: number; // λ：关窗后非绑定对象输入→状态增益比（临界期签名）
+  imprintLoadFreeze: number; // R3-15：MATCHED 触发的负载冻结阈值——本事件即时 load 贡献超此值时冻结（宁可延迟不可带混淆；非累积 f_load）
 
   // ── 跨条总 spec ──
   alertDownweightKappa: number; // κ：alert_triggered 事件慢变量沉积降权（<1）
@@ -119,6 +120,7 @@ export const DEFAULT_PARAMS: Params = {
   windowMatchTheta: 3.0,
   windowCloseConfirmContingency: 0.6,
   postWindowGain: 0.05,
+  imprintLoadFreeze: 0.8, // R3-15：即时 load 超此值冻结 MATCHED（正常事件 load 0.15–0.75；crisis 级 ≥0.9 才冻）
 
   alertDownweightKappa: 0.5,
 
@@ -190,6 +192,7 @@ const NUMERIC_PARAM_BOUNDS: Record<string, { min: number; max: number }> = {
   windowMatchTheta: { min: 0.01, max: 1_000 },
   windowCloseConfirmContingency: { min: 0, max: 1 },
   postWindowGain: { min: 0, max: 1 },
+  imprintLoadFreeze: { min: 0, max: 10 },
   alertDownweightKappa: { min: 0, max: 1 },
   muAttach: { min: 0, max: 1_000 },
   muBase: { min: 0, max: 1_000 },
