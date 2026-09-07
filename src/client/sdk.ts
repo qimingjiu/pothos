@@ -171,6 +171,16 @@ export class PothosClient {
     return this.req("POST", "/ma/activity", a);
   }
 
+  /** 住户侧写信入信箱（门控硬执行；被冻入账 compose_declined 零冲量；冷却窗防刷）。 */
+  composeLetter(a: {
+    subject: string;
+    body: string;
+    threadId?: string;
+    letterId?: string;
+  }): Promise<{ composed: boolean; declined: boolean; reason: string; letterId?: string }> {
+    return this.req("POST", "/ma/compose", a);
+  }
+
   /** 422（纪律拒绝）不抛错——{ok:false,error} 原样返回，先写预期的纪律由调用方读 error。 */
   changeParam(req: ChangeParamRequest): Promise<{ ok: boolean; error?: string }> {
     return this.req("POST", "/admin/params", req, [422]);

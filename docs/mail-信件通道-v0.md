@@ -65,16 +65,18 @@
 | 件 | 位置 | 状态 |
 |---|---|---|
 | RFC 2822 信件构造（Message-ID/Date/In-Reply-To，text/plain only） | `src/mail/protocol.ts` | ✅ |
-| SMTP 客户端（手写，465 隐式 TLS，AUTH LOGIN，dot-stuffing） | `src/mail/protocol.ts` | ✅（socket 可注入，脚本化测试；真发需 POTHOS_SMTP_* 凭据） |
-| IMAP 客户端（手写最小面：LOGIN/SELECT/SEARCH UNSEEN/FETCH/STORE，993 SSL） | `src/mail/protocol.ts` | ✅（同上） |
+| SMTP 客户端（手写，465 隐式 TLS，AUTH LOGIN，dot-stuffing） | `src/mail/protocol.ts` | ✅（socket 可注入，脚本化测试；**真网已验收**） |
+| IMAP 客户端（手写最小面：LOGIN/SELECT/SEARCH UNSEEN/FETCH/STORE，993 SSL） | `src/mail/protocol.ts` | ✅（同上；**真网已验收**） |
 | outbox 状态机 + 幂等（`mail_outbox` 表，migration 002） | `src/mail/letters.ts` + storage | ✅ |
 | 引擎事件面：kind `letter`（零冲量，内部路径） | `src/core/events.ts` | ✅ |
 | 投递 worker（窗口检查 + 重试退避 + 永久失败→bounced） | `src/mail/letters.ts` | ✅ |
-| 回信闭环（IMAP poll → In-Reply-To 匹配 → user_msg 入流 + phase=replied） | `src/mail/letters.ts` | ✅（真收需 POTHOS_IMAP_* 凭据） |
-| MCP 住户工具 `compose_letter` + 网关 cron 接线 | `src/mcp/` + `server/main.ts` | ⏳ 挂账（下一片） |
-| 部署凭据面（SMTP/IMAP 环境变量文档） | deploy/README.md | ⏳ 挂账 |
+| 回信闭环（IMAP poll → In-Reply-To 匹配 → user_msg 入流 + phase=replied） | `src/mail/letters.ts` | ✅（**真网 IMAP 冒烟已过**；闭环成线等她真实回信） |
+| MCP 住户工具 `compose_letter` + 网关 cron 接线 | `src/mcp/` + `server/main.ts` | ⏳ 挂账（第一封住户的信由 create 门挣来） |
+| 部署凭据面（SMTP/IMAP 环境变量文档） | deploy/README.md + .env.example + compose 透传 | ✅（凭据只进 deploy/.env，gitignore 在案） |
+| 三把锁（她 2026-09-07 定案） | `assertSendPolicy` + SEARCH 双条件 | ✅（§3.5） |
+| **真机 SMTP/IMAP 验收** | — | ✅ **已验收（2026-09-07，她的 Gmail/QQ 双地址）**：IMAP 只读冒烟（Gimap 握手 + 登录 + 双条件 SEARCH 被接受）+ SMTP 真投递冒烟（标定信「非住户创作」`phase=sent` 无退信，From 门牌 + MAIL_TO 双锁生效）；回信闭环成线等真实回信入箱 |
 
-## 5. 环境变量（部署面，凭据全在引擎侧、不入仓库）
+## 7. 环境变量（部署面，凭据全在引擎侧、不入仓库）
 
 | 变量 | 说明 |
 |---|---|

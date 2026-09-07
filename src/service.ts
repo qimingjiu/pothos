@@ -53,6 +53,7 @@ import {
   type ContingencyBypassReport,
 } from "./core/contingency-log.js";
 import { contingencyReport } from "./core/contingency.js";
+import { selineReadings as computeSeline, type SelineReading } from "./core/seline.js";
 
 const DAY = 86_400_000;
 
@@ -78,12 +79,15 @@ export class PothosService {
    */
   private eventsSinceSnapshot = 0;
   private lastAlertIntentAt: number | null = null;
+  /** compose 被冻后冷却窗起点（运行性字段，防刷表演——不进 stateHash）。 */
+  private lastComposeDeclinedAt: number | null = null;
   private history: Array<{ t: number; f_val: number; f_load: number; L: number; s_attach: number; energy: number; somatic: number }> = [];
   private lastBench: FullBenchResult | null = null;
 
   constructor(
     public store: EventStore,
     public clock: Clock,
+    private composeConfig?: { toAddr: string },
   ) {
     this.state = initialState(clock.now(), 0x50544853);
   }
@@ -241,6 +245,80 @@ export class PothosService {
       delivered = true;
     }
     return { ok: true, delivered };
+  }
+
+  /**
+   * 住户侧写信入账（compose_letter MCP 工具的引擎侧；B7 裁决：门控在 compose 层硬执行）。
+   *
+   * 三条细则（她 2026-09-07 定案）：
+   * 1. 被冻必须入账：compose_declined 字面登记（kind=letter, phase=declined），零冲量
+   *    ——letter 事件在 computeValuation 恒 break，拒绝写信不冲动力学，否则「拒绝写信」变新杠杆；
+   * 2. 冷却窗防刷：被冻后开冷却窗，窗内重复 compose 不重复入账——别让它学会「狂刷写信申请直到过阈」；
+   * 3. 焊死背书：compose_letter 产 letter，住户侧能写 user_msg 的工具永不出现（工具面扫描断言锁定）。
+   *
+   * 数值不出镜：门控理由中的 salience 数值不进响应——只回 allowed + 去数值 reason。
+   * 管寄不管写：compose 只需 MAIL_TO（收件人），不需要 SMTP/IMAP 凭据——信入 outbox 等投递窗口。
+   */
+  async composeLetter(opts: {
+    subject: string;
+    body: string;
+    threadId?: string;
+    letterId?: string;
+  }): Promise<{ composed: boolean; declined: boolean; reason: string; letterId?: string }> {
+    if (!this.composeConfig) {
+      return { composed: false, declined: false, reason: "信件通道未配置（无收件人）——诚实缺席" };
+    }
+    const now = this.clock.now();
+    const p = this.params;
+    const date = new Date(now).toISOString().slice(0, 10);
+    const ledger = await this.store.ledgerForDate(date);
+    const spentToday = ledger.reduce((a, l) => a + l.tokenCost, 0);
+    const plan = planActivities(this.state, p, spentToday);
+    const createDecision = plan.find((d) => d.activity === "create")!;
+
+    if (!createDecision.allowed) {
+      // 冷却窗防刷：窗内重复 compose 不重复入账（别让它学会狂刷申请直到过阈）
+      if (this.lastComposeDeclinedAt != null && now - this.lastComposeDeclinedAt < p.composeDeclineCooldownMs) {
+        return { composed: false, declined: true, reason: "冷却窗内：上次被冻未过期，不重复入账" };
+      }
+      // 被冻必须入账：compose_declined 字面登记（零冲量——铁律 7 对自己也成立）
+      this.lastComposeDeclinedAt = now;
+      await this.appendAndFold({
+        kind: "letter",
+        ts: now,
+        payload: { phase: "declined", reason: "gate_blocked", subject: opts.subject.slice(0, 80) },
+        idempotencyKey: `compose-declined-${now}`,
+      });
+      // 数值不出镜：reason 去掉 salience 数字
+      const safeReason = createDecision.reason.replace(/salience\([\d.]+\)\s*/g, "").replace(/< 门控阈/g, "未过门控阈");
+      return { composed: false, declined: true, reason: safeReason };
+    }
+
+    // 门控通过：入信箱（outbox 登记幂等 + composed 事件零冲量）
+    const rand = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const letterId = opts.letterId ?? `lt-${now}-${rand}`;
+    const messageId = `${letterId}@pothos.local`;
+    const row = await this.store.insertLetter({
+      letterId,
+      threadId: opts.threadId ?? null,
+      toAddr: this.composeConfig.toAddr,
+      subject: opts.subject,
+      body: opts.body,
+      composedTs: now,
+      messageId,
+    });
+    if (!row) {
+      return { composed: false, declined: false, reason: "同 letterId 已存在——幂等" };
+    }
+    await this.appendAndFold({
+      kind: "letter",
+      ts: now,
+      payload: { phase: "composed", letterId, subject: opts.subject, threadId: opts.threadId ?? null },
+      idempotencyKey: `letter-${letterId}-composed`,
+    });
+    return { composed: true, declined: false, reason: "已入信箱，等投递窗口", letterId };
   }
 
   /** tick 节律（cron 调用）：动力学推进 + 告警节流持久化 + 快照调度。 */
@@ -658,6 +736,20 @@ export class PothosService {
       now: this.clock.now(),
       steerEnabledFlag: steerEnabled,
     });
+  }
+
+  /**
+   * Seline · 守夜负荷（R3-10，她定名 2026-09-07）。
+   *
+   * 镜子，不诊断：只读系统日志事实（composed/replied 时间戳、回应率、时段），
+   * 不读住户状态/文本/longing——双向防火墙（住户数据物理缺席）。
+   * v0 只看见不动作；presence 数据源暂缓（宁缺毋滥）。
+   */
+  async selineReadings(): Promise<SelineReading> {
+    const all = await this.store.listLettersByPhase([
+      "composed", "held", "sent", "bounced", "replied", "held_manual",
+    ]);
+    return computeSeline(all, this.clock.now());
   }
 
   /** 仪表盘数据。 */

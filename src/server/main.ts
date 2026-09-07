@@ -36,7 +36,12 @@ async function main(): Promise<void> {
     await store.close().catch(() => {});
     process.exit(1);
   }
-  const svc = new PothosService(store, new SystemClock());
+  const mailTo = process.env["POTHOS_MAIL_TO"];
+  const svc = new PothosService(
+    store,
+    new SystemClock(),
+    mailTo ? { toAddr: mailTo } : undefined,
+  );
   const boot = await svc.boot({ reconcile: process.env["POTHOS_RECONCILE"] === "1" });
   if (boot.mismatch) {
     console.error("[POTHOS][P0] 对账不一致——快照或折叠实现有 bug，禁止带病上线");

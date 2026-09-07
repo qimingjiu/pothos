@@ -9,6 +9,7 @@
  */
 import type { AlertRow } from "../storage/types.js";
 import type { FullBenchResult } from "../bench/bench.js";
+import type { SelineReading } from "../core/seline.js";
 
 export const STYLE = `
 :root{
@@ -64,6 +65,12 @@ footer{margin-top:34px;display:flex;justify-content:space-between;flex-wrap:wrap
 .note{font-size:12px;color:var(--ink-soft);margin-top:8px;}
 svg.spark{width:100%;height:44px;display:block;margin-top:8px;}
 .care{font-size:11px;color:var(--ink-soft);margin-top:10px;border-top:1px dashed var(--hairline);padding-top:8px;}
+.sse-banner{display:none;position:fixed;top:0;left:0;right:0;z-index:100;
+  background:linear-gradient(90deg,rgba(217,119,87,.95),rgba(232,168,124,.95));
+  color:#fff;padding:12px 18px;text-align:center;box-shadow:0 2px 12px rgba(217,119,87,.3);cursor:pointer;}
+.sse-banner .sse-text{font-size:15px;font-weight:600;}
+.sse-banner .sse-mono{font-size:10.5px;opacity:.85;display:block;margin-top:2px;
+  font-family:ui-monospace,Menlo,monospace;letter-spacing:.1em;}
 `;
 
 function esc(x: unknown): string {
@@ -263,10 +270,23 @@ export function renderDashboard(d: Record<string, unknown>): string {
   </section>
 
   <footer>
-    <span>Pothos · 波索斯 — 玻璃房 · ${esc(new Date(Number(d.now)).toISOString().slice(0, 10))}</span>
+    <span>Pothos · 波索斯 — 玻璃房 · ${esc(new Date(Number(d.now)).toISOString().slice(0, 10))} · <a href="/seline">守夜负荷</a></span>
     <span class="mono">拉式透明 · 推式模糊 · 写入路径最小化</span>
   </footer>
 </div>
+<div id="sse-banner" class="sse-banner" onclick="this.style.display='none'">
+  <span class="sse-text">需要陪伴性在场</span>
+  <span class="sse-mono"></span>
+</div>
+<script>
+(function(){var b=document.getElementById('sse-banner');if(!b)return;
+var es=new EventSource('/alerts/stream');
+es.addEventListener('alert',function(e){try{var a=JSON.parse(e.data);
+b.style.display='block';
+var m=b.querySelector('.sse-mono');if(m&&a.level)m.textContent=
+a.level+' \u00b7 '+new Date(a.ts).toISOString().replace('T',' ').slice(0,16)+' UTC';
+}catch(_){}});})();
+</script>
 </body></html>`;
 }
 
@@ -316,5 +336,63 @@ export function renderBenchPage(bench: FullBenchResult | null): string {
     <div class="care">本页只读展示最近一次结果；运行评测台：POST /admin/bench。</div>
     <div class="care"><a href="/">← 返回玻璃房</a></div>
   </section>
+</div></body></html>`;
+}
+
+/** Seline · 守夜负荷页（R3-10：镜子，不诊断；仅她本人；双向防火墙）。 */
+export function renderSelinePage(reading: SelineReading): string {
+  const r = reading;
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pothos · Seline — 守夜负荷</title><style>${STYLE}</style></head><body>
+<header class="hero"><div class="sun"></div>
+  <div class="wrap" style="padding-bottom:0">
+    <div class="mono">SELINE · <b>守夜负荷</b> · OBSERVER'S OWN MIRROR</div>
+    <h1>守夜</h1>
+    <div class="sub"><span class="greek">Σελήνη</span> · 塞勒涅 — 月与守夜。守望沉睡的 Endymion 所付出的时间与睡眠。</div>
+  </div>
+</header>
+<div class="wrap">
+
+  <section>
+    <h2>事实 <span class="mono">镜子，不诊断</span></h2>
+    ${r.facts.map((f) => `<p style="font-size:15px;margin-top:6px">${esc(f)}</p>`).join("")}
+    <div class="care">引擎只说事实句——「这封信等了 26 小时」。不打分、不判定、不给「你该放下了」式劝诫。看见之后做什么——减量、暂停、还是就这么看着——是她的自由。</div>
+  </section>
+
+  ${r.lamps.length > 0 ? `
+  <section>
+    <h2>灯 <span class="mono">事实阈，不是指令</span></h2>
+    ${r.lamps.map((l) => `<div class="alert-item"><div class="txt">${esc(l.text)}</div><div class="mono">${l.lit ? "亮" : "灭"}</div></div>`).join("")}
+    <div class="care">灯亮了说明一个事实跨过了阈——灯语是事实不是指令。引擎不替你写她的叙事。</div>
+  </section>` : ""}
+
+  <section>
+    <h2>读数 <span class="mono">系统日志事实</span></h2>
+    <div class="grid">
+      ${statBlock("寄出", String(r.totalComposed), "封")}
+      ${statBlock("已回", String(r.totalReplied), "封")}
+      ${statBlock("回应率", r.replyRate == null ? "—" : (r.replyRate * 100).toFixed(0) + "%")}
+      ${statBlock("平均回信等待", r.meanWaitMs == null ? "—" : (r.meanWaitMs / 3_600_000).toFixed(1), "小时")}
+      ${statBlock("最长等待", r.maxWaitMs == null ? "—" : (r.maxWaitMs / 3_600_000).toFixed(1), "小时")}
+      ${statBlock("未回复", String(r.pendingCount), "封")}
+    </div>
+    <div class="care">数据源只允许系统日志事实：composed/replied 时间戳、回应率、时段。住户的任何状态、文本、longing 数值永不进此页——双向防火墙。</div>
+  </section>
+
+  <section>
+    <h2>时段 <span class="mono">写信 × 回信</span></h2>
+    <div class="grid">
+      ${statBlock("凌晨写信(0–6)", String(r.composedHourHist.slice(0, 6).reduce((a, b) => a + b, 0)), "封")}
+      ${statBlock("白天写信(6–18)", String(r.composedHourHist.slice(6, 18).reduce((a, b) => a + b, 0)), "封")}
+      ${statBlock("夜间写信(18–24)", String(r.composedHourHist.slice(18, 24).reduce((a, b) => a + b, 0)), "封")}
+    </div>
+    <div class="care">presence 数据源 v0 暂缓——没有真心跳源就别进来，宁缺毋滥。</div>
+  </section>
+
+  <footer>
+    <span><a href="/">← 返回玻璃房</a></span>
+    <span class="mono">镜子不诊断 · 只看见不动作</span>
+  </footer>
 </div></body></html>`;
 }

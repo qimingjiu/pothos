@@ -28,6 +28,8 @@ export interface PothosOps {
   maPlan(): Promise<Array<{ activity: string; allowed: boolean }>>;
   recordActivity(a: { activity: "digest" | "create" | "hunt" | "wonder" | "decline"; tokenCost: number; quality?: number; content?: string }): Promise<{ ok: boolean; delivered: boolean }>;
   declare(readings: Array<{ axis: string; intensity: number }>, native?: Array<{ axis: string; intensity: number }>, idempotencyKey?: string): Promise<{ stored: boolean; eventId?: number }>;
+  /** 住户侧写信入信箱（门控硬执行；被冻入账 compose_declined 零冲量；冷却窗防刷） */
+  composeLetter(a: { subject: string; body: string; threadId?: string; letterId?: string }): Promise<{ composed: boolean; declined: boolean; reason: string; letterId?: string }>;
   /** 观测者侧网关：她的话作为 user_msg 入流（crisis 词表由引擎侧扫描，保留标签不可注入） */
   sendUserMsg(a: { text: string; source?: string; idempotencyKey?: string }): Promise<{ stored: boolean; eventId?: number; crisis?: unknown }>;
   crisisCard(): Promise<string>;
@@ -56,6 +58,7 @@ export function opsFromService(svc: PothosService): PothosOps {
         payload: { v: 1, producer: "resident-self", readings, native },
         idempotencyKey: idempotencyKey ?? `declared-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
       }),
+    composeLetter: (a) => svc.composeLetter(a),
     sendUserMsg: (a) =>
       svc.ingest({
         kind: "user_msg",
@@ -97,6 +100,7 @@ export function opsFromClient(client: PothosClient): PothosOps {
         payload: { v: 1, producer: "resident-self", readings, native },
         idempotencyKey: idempotencyKey ?? `declared-${Date.now()}-${Math.floor(Math.random() * 1e9)}`,
       }),
+    composeLetter: (a) => client.composeLetter(a),
     sendUserMsg: (a) =>
       client.ingestEvent({
         kind: "user_msg",
@@ -129,6 +133,7 @@ interface ToolSpec {
 }
 
 const RESIDENT = ["resident", "observer"] as const;
+const RESIDENT_ONLY = ["resident"] as const;
 const OBSERVER_ONLY = ["observer"] as const;
 
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : NaN);
@@ -238,6 +243,33 @@ const TOOLS: ToolSpec[] = [
             .slice(0, 8)
         : undefined;
       return ops.declare(readings, native, a["idempotencyKey"] == null ? undefined : str(a["idempotencyKey"]));
+    },
+  },
+  {
+    name: "compose_letter",
+    description:
+      "住户侧写信入信箱（间引擎投递面）。引擎只提供出口，不给内容——信体你自己写。门控在 compose 层硬执行：create 活动未过阈时被冻（诚实拒绝是对的——动机未被挣到）。被冻会字面登记（compose_declined，零冲量），且开冷却窗防刷——别学会「狂刷写信申请直到过阈」，那是另一种表演。产出是 letter（不是 user_msg——住户侧写她的话的工具永不出现）。",
+    inputSchema: {
+      type: "object",
+      required: ["subject", "body"],
+      properties: {
+        subject: { type: "string" },
+        body: { type: "string", description: "信体（text/plain only）：你自己写的——引擎不给内容" },
+        threadId: { type: "string" },
+        letterId: { type: "string", description: "信件句柄（幂等主键）；缺省生成" },
+      },
+    },
+    sides: RESIDENT_ONLY,
+    run: async (a, ops) => {
+      const subject = str(a["subject"]);
+      const body = str(a["body"]);
+      if (!subject || !body) throw new Error("subject 与 body 必填——引擎不给内容，你的一字不发无从投递");
+      return ops.composeLetter({
+        subject,
+        body,
+        threadId: a["threadId"] == null ? undefined : str(a["threadId"]),
+        letterId: a["letterId"] == null ? undefined : str(a["letterId"]),
+      });
     },
   },
   {

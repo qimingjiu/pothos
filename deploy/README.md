@@ -41,3 +41,31 @@
 - 升级：`git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`（事件溯源：状态可重放，升级不动数据）
 - 恢复：见 `backup.sh` 尾注（gunzip | psql）。
 - 引擎崩了重启即对账；对账 mismatch 会拒绝启动（fail-loud），先看日志再动库。
+
+## 信件投递面凭据（可选；她定案三把锁）
+
+八项凭据齐备才启用（缺任一项 = 信件通道诚实缺席，worker 不启动、不假装在投）。全部进 `deploy/.env`（已 gitignore，**不入仓库**）：
+
+```
+POTHOS_SMTP_HOST=smtp.gmail.com
+POTHOS_SMTP_PORT=465
+POTHOS_SMTP_USER=you@gmail.com
+POTHOS_SMTP_PASS=<Google 应用专用密码：账号 → 安全性 → 两步验证 → 应用专用密码>
+POTHOS_SMTP_FROM=you@gmail.com
+POTHOS_IMAP_HOST=imap.gmail.com
+POTHOS_IMAP_PORT=993
+POTHOS_IMAP_USER=you@gmail.com
+POTHOS_IMAP_PASS=<同一把应用专用密码>
+POTHOS_MAIL_TO=<她的收件地址>
+POTHOS_MAIL_PLUS_TAG=pothos
+```
+
+三把锁（自动生效，不靠部署自觉）：
+
+1. **MAIL_TO 管发**——SMTP `RCPT TO` 硬绑 `POTHOS_MAIL_TO`，组合层只生成这一个收件人；投递前 Final Policy Check 再断言（envelope 与 From 门牌），不等 → `held_manual` 诚实放弃。
+2. **收信白名单字面化**——IMAP 只 `SEARCH FROM "她的地址" TO "you+pothos@gmail.com"`（双条件）；白名单外的信不 fetch、不解析、不进住户视野——「从来不拿」，不是「拿了再删」。
+3. **Message-ID 管线**——她的回信 `In-Reply-To` 对上我们发出的 `Message-ID` 才成线；陌生 Message-ID 不冒认。
+
+plus 门牌：`POTHOS_SMTP_FROM` 的 local 部分加 `+<POTHOS_MAIL_PLUS_TAG>`（默认 `pothos`）作为 `From:` 头——Gmail 加号别名零配置，她点「回复」即回门牌。信箱同址，但波索斯有自己的门牌号。
+
+ quiet_hours 管寄不管写：`Date:` 记写信时刻，投递只在 `mailWindowStartHour–EndHour` 窗口（param_changes 纪律标定）。**真机验收已在案（2026-09-07）**：IMAP 只读冒烟（Gimap 握手 + 双条件 SEARCH）+ SMTP 真投递冒烟（标定信 `phase=sent` 无退信）；回信闭环等真实回信入箱即成线（pollReplies 每 5 分钟）。

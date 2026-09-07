@@ -33,6 +33,20 @@ services:
       POTHOS_PG_URL: postgresql://pothos:${POSTGRES_PASSWORD}@db:5432/pothos
       POTHOS_TOKEN: ${POTHOS_TOKEN:?请在 deploy/.env 设置 POTHOS_TOKEN（公网暴露必设）}
       POTHOS_RECONCILE: "1"
+      # ── 信件投递面（可选）：凭据齐备才启用，缺任一项 = 信件通道诚实缺席 ──
+      # 锁纪律：POTHOS_MAIL_TO 是发信白名单硬锚（只能发给她）；
+      # 收信 SEARCH FROM "她" TO "user+pothos@…" 双条件字面化——白名单外的信字面不可见。
+      POTHOS_SMTP_HOST: ${POTHOS_SMTP_HOST:-}
+      POTHOS_SMTP_PORT: ${POTHOS_SMTP_PORT:-}
+      POTHOS_SMTP_USER: ${POTHOS_SMTP_USER:-}
+      POTHOS_SMTP_PASS: ${POTHOS_SMTP_PASS:-}
+      POTHOS_SMTP_FROM: ${POTHOS_SMTP_FROM:-}
+      POTHOS_IMAP_HOST: ${POTHOS_IMAP_HOST:-}
+      POTHOS_IMAP_PORT: ${POTHOS_IMAP_PORT:-}
+      POTHOS_IMAP_USER: ${POTHOS_IMAP_USER:-}
+      POTHOS_IMAP_PASS: ${POTHOS_IMAP_PASS:-}
+      POTHOS_MAIL_TO: ${POTHOS_MAIL_TO:-}
+      POTHOS_MAIL_PLUS_TAG: ${POTHOS_MAIL_PLUS_TAG:-pothos}
     ports:
       # 只绑本机回环：公网入口走 caddy（TLS + 域名）。内网直连场景改成 "7788:7788"。
       - "127.0.0.1:7788:7788"

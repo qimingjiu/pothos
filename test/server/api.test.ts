@@ -94,6 +94,20 @@ describe("HTTP · 事件摄入", () => {
     expect(html).toContain("需要陪伴性在场");
   });
 
+  it("仪表盘 SSE 横幅：EventSource 接 /alerts/stream，方向盲唯一文案不加新内容", async () => {
+    const { app } = setup();
+    const res = await app.request("/");
+    const html = await res.text();
+    // SSE 已接上：实时推送已有的方向盲告警
+    expect(html).toContain("EventSource('/alerts/stream')");
+    expect(html).toContain("sse-banner");
+    // 方向盲纪律：横幅文案唯一，与既有告警同——SSE 只把已有告警变实时，不加新内容
+    expect(html).toContain("需要陪伴性在场");
+    // 不引入任何方向/轴/效价字段
+    const banner = html.match(/<div id="sse-banner"[\s\S]*?<\/script>/)?.[0] ?? "";
+    expect(banner).not.toMatch(/\bvalence\b|\bdirection\b|\baxis\b/);
+  });
+
   it("告警签收流：POST ack → acted，仪表盘可读未签收数", async () => {
     const { app, svc } = setup();
     // 制造告警：躯体化等级拉高 + tick

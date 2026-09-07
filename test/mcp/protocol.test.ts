@@ -39,7 +39,7 @@ describe("MCP · 协议直测", () => {
   it("双侧纪律：resident 拿不到任何数值工具；observer 拿不到申报类工具", async () => {
     const rList = (await parse(resident, { jsonrpc: "2.0", id: 1, method: "tools/list" }))["result"] as { tools: Array<{ name: string }> };
     const rNames = rList.tools.map((t) => t.name);
-    expect(rNames).toEqual(expect.arrayContaining(["interoception", "ma_plan", "record_ma_activity", "declare", "crisis_card", "control_window"]));
+    expect(rNames).toEqual(expect.arrayContaining(["interoception", "ma_plan", "record_ma_activity", "declare", "compose_letter", "crisis_card", "control_window"]));
     for (const forbidden of ["state", "metrics", "alerts", "ack_alert", "act_alert", "change_param", "audit", "bench", "send_user_msg"]) {
       expect(rNames, `resident 侧不得暴露 ${forbidden}`).not.toContain(forbidden);
     }

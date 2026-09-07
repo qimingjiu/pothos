@@ -13,7 +13,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { PothosService } from "../service.js";
 import { rendererVersion } from "../render/renderer.js";
 import type { MaActivity } from "../storage/types.js";
-import { renderDashboard, renderMaPage, renderBenchPage } from "./dashboard.js";
+import { renderDashboard, renderMaPage, renderBenchPage, renderSelinePage } from "./dashboard.js";
 import { resourceCard } from "../crisis/crisis.js";
 import { parseDeclaredPayload } from "../declared/contract.js";
 
@@ -30,9 +30,11 @@ export const ALLOWED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/ma" },
   { method: "GET", path: "/ma/view" },
   { method: "POST", path: "/ma/activity" },
+  { method: "POST", path: "/ma/compose" },
   { method: "GET", path: "/alerts/stream" },
   { method: "GET", path: "/admin/bench-page" },
   { method: "GET", path: "/crisis/card" },
+  { method: "GET", path: "/seline" },
   { method: "GET", path: "/admin/audit" },
   { method: "POST", path: "/admin/params" },
   { method: "POST", path: "/admin/fork-replay" },
@@ -173,6 +175,12 @@ function registerObservationRoutes(app: Hono, svc: PothosService): void {
 
   // 危机资源卡（公开可审计契约）
   app.get("/crisis/card", (c) => c.text(resourceCard(svc.params)));
+
+  // Seline · 守夜负荷（R3-10：观测者侧构念，镜子不诊断，仅她本人）
+  app.get("/seline", async (c) => {
+    const reading = await svc.selineReadings();
+    return c.html(renderSelinePage(reading));
+  });
 }
 
 /** 事件摄入（幂等键强制 + 外部事件面白名单 + 时间窗）。 */
@@ -249,6 +257,22 @@ function registerActivityRoutes(app: Hono, svc: PothosService): void {
       tokenCost: Number(body["tokenCost"] ?? 0),
       quality: body["quality"] == null ? undefined : Number(body["quality"]),
       content: typeof body["content"] === "string" ? body["content"] : undefined,
+    });
+    return c.json(res);
+  });
+
+  // 住户侧写信入信箱（compose_letter MCP 工具的 HTTP 面；门控硬执行在 service 层）
+  app.post("/ma/compose", async (c) => {
+    const body = await readJson(c);
+    if (body === "too-large") return c.text("payload too large", 413);
+    if (!body || typeof body["subject"] !== "string" || typeof body["body"] !== "string") {
+      return c.text("subject and body required", 400);
+    }
+    const res = await svc.composeLetter({
+      subject: body["subject"],
+      body: body["body"],
+      threadId: body["threadId"] == null ? undefined : String(body["threadId"]),
+      letterId: body["letterId"] == null ? undefined : String(body["letterId"]),
     });
     return c.json(res);
   });
