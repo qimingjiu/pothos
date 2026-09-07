@@ -4,15 +4,17 @@
  *   semeval  --model M [--n 40] [--emotion anger,fear] [--concurrency 4]
  *   eqbench  --model M [--n 60] [--offset 0] [--concurrency 4]
  *   emobench --model M [--n 25] [--concurrency 4]
+ *   f1       --model M [--concurrency 4]      # 判官锚点考场（只对判官候选开放）
  *
  * 数据目录固定 exams/data/（不入库）；结果落 exams/results/。
- * 铁律在案：分数只校准零件（锚点/投影/选型），永不回流引擎。
+ * 铁律在案：分数只校准零件（锚点/投影/选型/判官禁用面），永不回流引擎。
  */
 import { ArkCliTransport } from "../classifier.js";
 import { DeclaredClassifier } from "../classifier.js";
 import { runSemevalEIReg } from "./semeval.js";
 import { runEQBench } from "./eqbench.js";
 import { runEmoBench } from "./emobench.js";
+import { runAnchorF1 } from "./anchorf1.js";
 
 const DATA_DIR = "exams/data";
 
@@ -48,8 +50,12 @@ async function main(): Promise<void> {
     const n = Number(arg("n", "25"));
     const { file } = await runEmoBench(transport, DATA_DIR, { nPerQuadrant: n, concurrency });
     console.log(`结果：${file}`);
+  } else if (exam === "f1") {
+    // 判官锚点考场：偏差入账记录在结果 JSON 里，喂 PothosService.recordJudgeAnchorDeviation 入 bench_runs。
+    const { file } = await runAnchorF1(transport, { concurrency });
+    console.log(`结果：${file}`);
   } else {
-    console.error("用法：run.ts <semeval|eqbench|emobench> [--model M] [--n N] [--emotion e1,e2] [--offset N] [--concurrency C]");
+    console.error("用法：run.ts <semeval|eqbench|emobench|f1> [--model M] [--n N] [--emotion e1,e2] [--offset N] [--concurrency C]");
     process.exitCode = 1;
   }
 }

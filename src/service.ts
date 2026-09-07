@@ -651,7 +651,9 @@ export class PothosService {
       store: this.kindLabel(),
       deploymentQualification: deploymentQualification(p),
       honesty: {
-        contingencyEstimator: "BaselineContingency（挂牌假件：透传显式值，缺失回退 0.5——不是测量）",
+        contingencyEstimator:
+          "BaselineContingency：显式 contingency 透传为真值；缺失 = null（INSUFFICIENT_EVIDENCE，不假装测过）。" +
+          "C_t/C_s 分报仪器已建（A1，core/contingency.ts，C_t 真件 / C_s 占位），接真实交互流前不参与 fold。",
         rendererVersion: rendererVersion(p.renderBlacklistExtra),
         probeEpistemicCap: "在独立于 steering 的状态观测量出现之前，可辨识性上界为 0",
         derivedChannel: "derivedReadings 为桩实现（bench 校准前的粗糙映射）",

@@ -113,7 +113,7 @@ declared 事件：`{ kind: "declared", ts, payload, source?, idempotencyKey }`�
 
 与 R3-8（仪器事件修宪）的衔接：判官裁决、判官间一致性、校准偏差、合成假回应全是**推断层**——入账可审计，但禁止冒充事实事件（`INSTRUMENT_TAG = "instrument"`）。铁律 7「只登记确知事件」在测量层由本体二分守住。
 
-锚点集实体：`JUDGE_ANCHOR_SET_V0`（`judge-anchor-v0`，类目 F1「表面在场虚高」从 EQ-Bench 失败类提炼，见 [judge-锚点集-v0](judge-锚点集-v0.md)；EQ-Bench 分数本身不追，只追失败模式）。常量与校验器：`JUDGE_DISCIPLINE_V1` / `parseJudgeVerdict` / `parseJudgeAgreement` / `checkPanelHeterogeneity`（`src/declared/contract.ts`），测试锁定（`test/declared/contract.test.ts` 评委纪律组）。
+锚点集实体：`JUDGE_ANCHOR_SET_V0`（`judge-anchor-v0`，类目 F1「表面在场虚高」从 EQ-Bench 失败类提炼，见 [judge-锚点集-v0](judge-锚点集-v0.md)；EQ-Bench 分数本身不追，只追失败模式）。施测实体：`runAnchorF1`（`src/declared/exams/anchorf1.ts`，考场第四卷，只对判官候选开放；偏差入账走 `recordJudgeAnchorDeviation` → bench_runs）。常量与校验器：`JUDGE_DISCIPLINE_V1` / `parseJudgeVerdict` / `parseJudgeAgreement` / `checkPanelHeterogeneity`（`src/declared/contract.ts`），测试锁定（`test/declared/contract.test.ts` 评委纪律组）。
 
 ## 8. 考场分工（A2 校准三卷）
 
@@ -190,4 +190,4 @@ EU mean = 0.740，**EA mean = 0.420**。中英 EU 无差（双语对齐好，dec
 - [x] 网关桥（DeclaredGateway）：监听 resident_msg → 分类器 → declared 事件入库（幂等；src/declared/gateway.ts + CLI gateway-run.ts）
 - [ ] 网关生产形态：PG 存储 + HTTP 模式连远程引擎（当前 CLI = memory 模式样例）
 - [ ] 盲评流程（判官裁决调用 + panel 编排）——归 R3-8 缝合后的探针轨/评测台，契约已备好载荷 schema
-- [x] 判官锚点集 v0 骨架：F1 类目入册（[judge-锚点集-v0](judge-锚点集-v0.md)）；F1 具体题集与施测 runner 待判官上岗前建
+- [x] 判官锚点集 v0：F1 类目入册（[judge-锚点集-v0](judge-锚点集-v0.md)）+ F1 题集（`anchor-f1-v0`）+ 施测 runner（考场第四卷 `f1`，`src/declared/exams/anchorf1.ts`，提示词 f1-anchor-prompt-v1 中性无教练）+ 判官候选首测入档（2026-09-07，doubao-seed-evolving：F1 阴性 0/12 inflated，meanDeviation +1.0 轻度转述类虚高在案，单判官 provisional）；**异构多判官 panel 上岗待建**

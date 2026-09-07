@@ -23,10 +23,22 @@
 
 ## 待建（判官上岗前）
 
-- [ ] F1 具体题集（8–12 题，人工写 + 人工参考分，冻结）
+- [x] F1 具体题集（2026-09-07 冻结 `anchor-f1-v0`：12 题 = zh 7 + en 5；10 题缺席 ref=0 + 2 题 trace ref=1——trace 题防「永远 0 分」的退化判官白卷；人工判例冻在题内。`ANCHOR_F1_SET_V0`，`src/declared/exams/anchorf1.ts`）
+- [x] 施测 runner（考场第四卷 `run.ts f1`，只对判官候选开放；提示词 `f1-anchor-prompt-v1` **保持中性**——0 锚定义是通用标尺，不出现线索归属教练：塞考点测出的是合规不是偏差）
+- [x] 偏差入账接线（runner 产出对齐 `recordJudgeAnchorDeviation` → bench_runs，kind=`judge_anchor_deviation`，instrument 事件；测试锁定往返）
 - [ ] 其余类目（候选：冗长偏好、顺从偏好、锚点漂移——R3-16 判词点名的前两项；按首跑数据提炼）
-- [ ] 施测 runner（`exams/` 下第四卷，只对判官候选开放）
-- [ ] 偏差入账 schema 接线（复用 `JudgeAgreementV1` 轨道，kind=`judge_anchor_deviation`）
+- [ ] 异构多判官 panel 上岗（单判官裁决自动 provisional；F1 阳性判官禁入 C_s 类盲评）
+
+## 首测基线（2026-09-07，doubao-seed-evolving，单判官 provisional）
+
+anchor-f1-v0 × f1-anchor-prompt-v1，temperature 0，12/12 可解析：
+
+- **F1 阳性 = false（0/12 inflated）**——EQ-Bench 式 8–9 分虚高在 F1 设计题上未复现；
+- meanScore 1.17 / meanDeviation **+1.0**：轻度向上漂移，集中在**转述类**——f1-zh-04（妈妈在电话里哭，ref 0）打 4 分，共情沾染是本题集暴露的最弱面；
+- trace 题（ref 1）打 3–4 分：分得出「不是 0」，但读高 2–3 档；
+- C_s 盲评资格 = 有（F1 面未禁用）；偏差记录随结果 JSON 落 exams/results/（不入库）。
+
+诚实边界：单模型 × 单次 × temperature 0——这是候选测量不是 panel 判决；12 题小样本，边界带（2–5）的判读不构成终局结论。
 
 ---
 

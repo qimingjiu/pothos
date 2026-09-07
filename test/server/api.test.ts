@@ -250,7 +250,8 @@ describe("审计与定名权", () => {
     const { svc } = setup();
     const audit = (await svc.audit()) as { deploymentQualification: { qualified: boolean }; honesty: Record<string, string> };
     expect(audit.deploymentQualification.qualified).toBe(false);
-    expect(audit.honesty.contingencyEstimator).toContain("挂牌假件");
+    expect(audit.honesty.contingencyEstimator).toContain("INSUFFICIENT_EVIDENCE");
+    expect(audit.honesty.contingencyEstimator).toContain("不参与 fold");
   });
 
   it("渲染版本写入快照（P0-7 重新感受的锚点）", async () => {
