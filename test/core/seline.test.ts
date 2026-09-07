@@ -184,7 +184,7 @@ describe("Seline · 只看见不动作", () => {
     // 灯亮了但不触发——只看见
     expect(r.lamps.some((l) => l.lit)).toBe(true);
     // SelineReading 里没有 action 字段
-    expect((r as Record<string, unknown>)["action"]).toBeUndefined();
+    expect((r as unknown as Record<string, unknown>)["action"]).toBeUndefined();
   });
 });
 
