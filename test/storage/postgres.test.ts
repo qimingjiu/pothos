@@ -142,6 +142,16 @@ d("PG 适配器 · 契约测试", () => {
     const since = await store.listAlerts({ sinceTs: 1767400800500 });
     expect(since.map((x) => x.id)).toContain(b.id);
     expect(since.map((x) => x.id)).not.toContain(a.id);
+
+    // 回归（首部署真机抓出）：无过滤 + limit = boot() 的调用形状——
+    // LIMIT 曾被插值成字面量，limit 值作为多余绑定参数传入 → 08P01 崩溃循环。
+    // 带过滤 + limit 同理（占位符 $1 而参数 2 个）。LIMIT 必须参数化（$N）。
+    const bootShape = await store.listAlerts({ limit: 1 });
+    expect(bootShape.length).toBe(1); // 恰好 1 条，limit 生效
+    const bothFilters = await store.listAlerts({ status: "OBSERVED", sinceTs: 1767400800000, limit: 5 });
+    expect(bothFilters.every((x) => x.status === "OBSERVED")).toBe(true);
+    const noOpts = await store.listAlerts();
+    expect(noOpts.length).toBeGreaterThanOrEqual(bootShape.length);
   });
 
   it("間台账 / 信箱 / 评测台 / 金丝雀：append + 查询往返", async () => {

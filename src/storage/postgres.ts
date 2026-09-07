@@ -245,8 +245,10 @@ export class PostgresStore implements EventStore {
       clauses.push(`ts >= $${args.length}`);
     }
     // 子句为硬编码字符串、值全参数化；插值只拼进查询文本（pg 动态查询标准写法）
+    // LIMIT 也参数化（$N）：无过滤调用（boot 的 {limit:1}）时占位符数必须与参数数一致——
+    // 首次真机部署抓出：LIMIT 曾被插值成字面量而 limit 值作为多余参数传入，08P01 崩溃循环
     const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
-    const sql = `SELECT * FROM alerts ${where} ORDER BY ts DESC LIMIT ${args.length + 1}`;
+    const sql = `SELECT * FROM alerts ${where} ORDER BY ts DESC LIMIT $${args.length + 1}`;
     const res = await this.pool.query(sql, [...args, opts?.limit ?? 100]);
     return res.rows.map((r) => this.rowToAlert(r));
   }
