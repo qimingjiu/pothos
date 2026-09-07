@@ -49,6 +49,13 @@ export class PostgresStore implements EventStore {
 
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString });
+    // 空闲客户端连接被远端断开时，pg 池会向 Client 发 'error' 事件——
+    // 无人监听 = 进程整条崩掉（首部署实录：08:28:52 'Connection terminated
+    // unexpectedly' 未处理异常，靠平台拉起才恢复）。池会自动重建连接，
+    // 瞬断只需记日志，不值得拿进程命抵；真故障由后续 query 的 reject 暴露。
+    this.pool.on("error", (e) => {
+      console.error("[POTHOS] pg pool client error（连接池自动重建，进程不退）:", e.message);
+    });
   }
 
   /**
