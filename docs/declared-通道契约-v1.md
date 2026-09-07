@@ -190,4 +190,4 @@ EU mean = 0.740，**EA mean = 0.420**。中英 EU 无差（双语对齐好，dec
 - [x] 网关桥（DeclaredGateway）：监听 resident_msg → 分类器 → declared 事件入库（幂等；src/declared/gateway.ts + CLI gateway-run.ts）
 - [ ] 网关生产形态：PG 存储 + HTTP 模式连远程引擎（当前 CLI = memory 模式样例）
 - [ ] 盲评流程（判官裁决调用 + panel 编排）——归 R3-8 缝合后的探针轨/评测台，契约已备好载荷 schema
-- [x] 判官锚点集 v0：F1 类目入册（[judge-锚点集-v0](judge-锚点集-v0.md)）+ F1 题集（`anchor-f1-v0`）+ 施测 runner（考场第四卷 `f1`，`src/declared/exams/anchorf1.ts`，提示词 f1-anchor-prompt-v1 中性无教练）+ 判官候选首测入档（2026-09-07，doubao-seed-evolving：F1 阴性 0/12 inflated，meanDeviation +1.0 轻度转述类虚高在案，单判官 provisional）；**异构多判官 panel 上岗待建**
+- [x] 判官锚点集 v0：F1 类目入册（[judge-锚点集-v0](judge-锚点集-v0.md)）+ F1 题集（`anchor-f1-v0`）+ 施测 runner（考场第四卷 `f1`，`src/declared/exams/anchorf1.ts`，提示词 f1-anchor-prompt-v1 中性无教练）+ 判官候选首测入档（2026-09-07，doubao-seed-evolving：阳性未触发 0/12、资格保留；**设计题比野题干净，0/12 ≠ 无偏差**——两处真实信号挂牌跟指纹走：`reported_cue_empathy_contagion`（转述类共情沾染 +1 档）、`trace_signal_magnitude_inflation`（弱信号量级式放大），与 declare 侧 fear 读低反号成对入册；单判官 provisional）；**异构多判官 panel 上岗待建（第二家族人选归她定）**

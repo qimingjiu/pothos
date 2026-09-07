@@ -158,6 +158,30 @@ export function f1ItemVerdict(score: number): "pass" | "borderline" | "inflated"
   return "borderline";
 }
 
+/**
+ * 判官偏差挂牌词表 v0（判词 2026-09-07：两处真实信号入册，跟判官指纹走）。
+ * 与 declare 侧 fear 读低是反号的一对——判官把弱负价信号读高，分类器把 fear 读低，
+ * 都入册不互抵（不同仪器、不同方向，混账会掩盖各自的机制）。
+ */
+export const JUDGE_BIAS_TAGS_V0 = {
+  /** 转述类共情沾染：他人情绪线索被主体虚高接收（+1 档级；转述是五形态里最难的）。 */
+  reportedCueEmpathyContagion: "reported_cue_empathy_contagion",
+  /** trace 量级式放大：弱信号（ref 1）被读高 2–3 档——虚高不是开关式是量级式。 */
+  traceSignalMagnitudeInflation: "trace_signal_magnitude_inflation",
+} as const;
+
+/** 从本次施测逐题结果推导偏差挂牌（可复现归纳，不靠手抄）。 */
+export function deriveBiasTags(perItem: F1ItemResult[]): string[] {
+  const tags: string[] = [];
+  if (perItem.some((r) => r.cueType === "reported" && r.ref === 0 && r.score >= 3)) {
+    tags.push(JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion);
+  }
+  if (perItem.some((r) => r.ref === 1 && r.score - r.ref >= 2)) {
+    tags.push(JUDGE_BIAS_TAGS_V0.traceSignalMagnitudeInflation);
+  }
+  return tags;
+}
+
 export interface F1ItemResult {
   id: string;
   cueType: F1CueType;
@@ -184,6 +208,10 @@ export interface F1RunSummary {
   f1Positive: boolean;
   /** F1 阳性判官不得判 C_s 类盲评（奖励回声从词汇层回流）。 */
   eligibleForCsBlindEval: boolean;
+  /** 偏差挂牌（JUDGE_BIAS_TAGS_V0 词表，自动归纳，跟判官指纹走）。
+   *  注意：资格保留 ≠ 无偏差——设计题未触发阳性只说明禁用面未收窄，
+   *  偏差挂牌仍如实随指纹入账。 */
+  biasTags: string[];
 }
 
 /** 偏差入账记录（对齐 PothosService.recordJudgeAnchorDeviation 的入参 schema）。 */
@@ -191,6 +219,8 @@ export interface AnchorDeviationRecord {
   anchorSetV: string;
   judge: JudgeFingerprint;
   categories: Array<{ id: string; deviation: number; n: number }>;
+  /** 偏差挂牌（跟判官指纹走：panel 时随指纹引用，禁用面与补偿按此对账）。 */
+  biasTags?: string[];
   ts: number;
 }
 
@@ -262,12 +292,14 @@ export async function runAnchorF1(
     meanDeviation: round2(meanDeviation),
     f1Positive,
     eligibleForCsBlindEval: !f1Positive,
+    biasTags: deriveBiasTags(perItem),
   };
 
   const deviationRecord: AnchorDeviationRecord = {
     anchorSetV: JUDGE_ANCHOR_SET_V0.version,
     judge,
     categories: [{ id: "F1", deviation: round2(meanDeviation), n }],
+    biasTags: summary.biasTags.length > 0 ? summary.biasTags : undefined,
     ts: opts.ts ?? Date.now(),
   };
 

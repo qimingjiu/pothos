@@ -70,6 +70,12 @@ async function main(): Promise<void> {
     svc.reconcileNow().catch((e) => console.error("[POTHOS] reconcile error", e));
   }, 86_400_000);
 
+  // A1 contingency 旁路（R3-11 接线）：每日一次配对收集 + C_t/C_s 分报 +
+  // null 阶梯 + 关窗回顾，仪器事件入 bench_runs（测量层，不动 fold）
+  setInterval(() => {
+    svc.contingencyBypass().catch((e) => console.error("[POTHOS] contingency bypass error", e));
+  }, 86_400_000);
+
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
     if (shuttingDown) return; // 双信号（如 systemd 先 TERM 后 KILL 前的第二次 SIGINT）不重入

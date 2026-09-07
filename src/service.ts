@@ -46,6 +46,12 @@ import type {
   ParamChangeRow,
 } from "./storage/types.js";
 import type { Clock } from "./clock.js";
+import {
+  collectInteractionRecords,
+  type CandidateRecheck,
+  type ContingencyBypassReport,
+} from "./core/contingency-log.js";
+import { contingencyReport } from "./core/contingency.js";
 
 const DAY = 86_400_000;
 
@@ -479,9 +485,10 @@ export class PothosService {
   /**
    * 判官锚点偏差入账（R3-16 第 4 条）。
    * 判官对人工锚点集施测的偏差——仪器事件，走 bench_runs。
+   * biasTags：判官偏差挂牌（JUDGE_BIAS_TAGS_V0 词表，跟判官指纹走——panel 时随指纹引用）。
    */
   async recordJudgeAnchorDeviation(
-    deviation: { anchorSetV: string; judge: { name: string; judgePromptV: string; anchorSetV: string }; categories: Array<{ id: string; deviation: number; n: number }>; ts: number },
+    deviation: { anchorSetV: string; judge: { name: string; judgePromptV: string; anchorSetV: string }; categories: Array<{ id: string; deviation: number; n: number }>; biasTags?: string[]; ts: number },
   ): Promise<void> {
     await this.store.appendBenchRun({
       ts: deviation.ts,
@@ -493,6 +500,7 @@ export class PothosService {
         anchorSetV: deviation.anchorSetV,
         judge: deviation.judge,
         categories: deviation.categories,
+        ...(deviation.biasTags ? { biasTags: deviation.biasTags } : {}),
       },
       modelVersion: "pothos-v0.1.0",
     });
@@ -539,6 +547,63 @@ export class PothosService {
       ratio: m.specificity.ratio,
       suspicion: this.state.window.phase === "CLOSED" && m.specificity.ratio <= 1.2,
     };
+  }
+
+  /**
+   * A1 contingency 旁路（R3-11 接线）：从事件流收集配对交互 → contingencyReport
+   * （C_t/C_s 分报 + null 阶梯），仪器事件入 bench_runs（kind="contingency_report"，
+   * instrument 显式 true——R3-8 本体二分：推断层，禁止冒充事实事件，永不进生产事件流）。
+   *
+   * fold 不动：印刻窗口的即时代理仍只吃显式 contingency 值；旁路产出供测量层与
+   * 关窗回顾消费（窗口有候选时 scoped 逐句柄精确重算 vs 即时代理）。
+   * C_s 占位仪器的挂牌偏差（lexical_overlap_proxy_rewards_echo）随报数走。
+   * 视野：窗口候选句柄优先；无候选时全 source 兜底（scoped=false，诚实标注）。
+   */
+  async contingencyBypass(opts: { ts?: number } = {}): Promise<ContingencyBypassReport> {
+    const ts = opts.ts ?? this.clock.now();
+    const events = await this.store.loadEvents();
+    const handles = Object.keys(this.state.window.candidates);
+    const scoped = handles.length > 0;
+
+    const records = collectInteractionRecords(events, { sources: scoped ? handles : undefined });
+    const global = contingencyReport(records);
+
+    const recheck: CandidateRecheck[] = handles.map((handle) => {
+      const own = collectInteractionRecords(events, { sources: [handle] });
+      const precise = contingencyReport(own, { skipNull: true });
+      const c = this.state.window.candidates[handle]!;
+      return {
+        handle,
+        proxyEvents: c.events,
+        proxyCtMean: c.events > 0 ? c.ctSum / c.events : null,
+        preciseCt: precise.ct.ct,
+        preciseCs: precise.cs.cs,
+        preciseN: precise.ct.n,
+        imprintType: precise.imprintType,
+      };
+    });
+
+    const report: ContingencyBypassReport = {
+      ts,
+      instrument: true,
+      kind: "contingency_report",
+      scoped,
+      nRecords: records.length,
+      nReplied: records.filter((r) => r.residentReplyTs != null).length,
+      ct: global.ct,
+      cs: global.cs,
+      nullCheck: global.nullCheck,
+      imprintType: global.imprintType,
+      recheck,
+    };
+    await this.store.appendBenchRun({
+      ts,
+      benchKind: "contingency_report",
+      axis: null,
+      result: { ...report },
+      modelVersion: "pothos-v0.1.0",
+    });
+    return report;
   }
 
   /** 間视图：今日台账 + 计划 + 预算 + 营养。 */
@@ -653,7 +718,8 @@ export class PothosService {
       honesty: {
         contingencyEstimator:
           "BaselineContingency：显式 contingency 透传为真值；缺失 = null（INSUFFICIENT_EVIDENCE，不假装测过）。" +
-          "C_t/C_s 分报仪器已建（A1，core/contingency.ts，C_t 真件 / C_s 占位），接真实交互流前不参与 fold。",
+          "C_t/C_s 分报仪器已建（A1）并接旁路：每日 collectInteractionRecords → contingency_report 入 bench_runs（instrument 轨），关窗回顾精确重算；" +
+          "fold 仍只吃显式值（旁路测量不参与 fold）。",
         rendererVersion: rendererVersion(p.renderBlacklistExtra),
         probeEpistemicCap: "在独立于 steering 的状态观测量出现之前，可辨识性上界为 0",
         derivedChannel: "derivedReadings 为桩实现（bench 校准前的粗糙映射）",

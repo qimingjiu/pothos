@@ -17,7 +17,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（222 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/判官锚点；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（234 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/判官锚点；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```
@@ -130,7 +130,7 @@ Claude Code 挂载（`.mcp.json`）：
 | M5 评测台 | ✅ | 合成夹具全绿（三指标 + 日检判据 + gap 对齐） |
 | M6 探针轨 | ⊘ 脚手架 | EXPERIMENTAL，默认关闭；前置门四项物理化 |
 | A2 declared 通道（主线一） | ✅ 契约+考场+网关+判官锚点考场 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥 + 判官锚点考场 F1 卷（222 测试）；fear 偏差已入账 |
-| A1 contingency（主线二） | ✅ 分报制原型 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；C_s 待判官继任 |
+| A1 contingency（主线二） | ✅ 分报制原型 + 旁路接线 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；旁路骨架已接事件流（每日 contingency_report 入账 + 关窗回顾精确重算）；C_s 待判官继任（panel 对照） |
 
 ## 诚实两栏（§14，v0.1.0）
 
@@ -152,9 +152,9 @@ Claude Code 挂载（`.mcp.json`）：
 
 **未实现 / 桩件（挂牌，附录 B-7 纪律——不许假装是真件）：**
 - ~~MCP 客户端兼容性~~ **已验收（v0.2.0 当日）**：真实客户端 Kimi Work 挂载实测全绿——握手协商、observer 侧 15 件工具全部出现、`send_user_msg` ×3 / `interoception` ×2 / `state` ×1 一次成功，事件入库且质感分箱真实响应。
-- **contingency 估计器**：~~`BaselineContingency` 为桩~~ **A1 分报制已动工（2026-09-07，R3-11 定案）**：`src/core/contingency.ts`——C_t（时序应答）真实现（lift + 节律归一 + burst 塌缩），C_s 占位仪器（纯词表余弦，**挂牌偏差「奖励回声」**——堆情绪词但没收住对方天然高分，F1 从词汇层回流，与 fear −0.30 同族登记），null 阶梯 N0–N3 + 分歧报警，类型化印刻三型。WindowCandidate 改 C_t/C_s 分列（取消乘积），apply 适配。**判官继任进度（2026-09-07）：F1 题集（12 题，anchor-f1-v0）与施测 runner 已建成（`src/declared/exams/anchorf1.ts`，考场第四卷），判官候选首测已入档（doubao-seed-evolving：F1 阴性 0/12 inflated，meanDeviation +1.0，轻度虚高集中在转述类——单判官 provisional）；判官上岗剩异构多判官 panel（R3-16）。**C_t 用合成测试数据验证数学，标定带位待真实运行期。
+- **contingency 估计器**：~~`BaselineContingency` 为桩~~ **A1 分报制已动工（2026-09-07，R3-11 定案）**：`src/core/contingency.ts`——C_t（时序应答）真实现（lift + 节律归一 + burst 塌缩），C_s 占位仪器（纯词表余弦，**挂牌偏差「奖励回声」**——堆情绪词但没收住对方天然高分，F1 从词汇层回流，与 fear −0.30 同族登记），null 阶梯 N0–N3 + 分歧报警，类型化印刻三型。WindowCandidate 改 C_t/C_s 分列（取消乘积），apply 适配。**判官继任进度（2026-09-07）：F1 题集（12 题，anchor-f1-v0）与施测 runner 已建成（`src/declared/exams/anchorf1.ts`，考场第四卷），判官候选首测已入档——F1 阳性未触发（0/12），C_s 盲评资格保留；但两处真实信号已挂牌跟指纹走（`reported_cue_empathy_contagion` 转述类共情沾染 +1 档、`trace_signal_magnitude_inflation` 弱信号量级式放大 2–3 档）。解读边界（判词）：设计题比野题干净，0/12 不是「无偏差」的证明；判别力在 panel 对照（第二家族人选归她定），判官考试不挡 A1 主线。**C_t 用合成测试数据验证数学，标定带位待真实运行期。
 - **derived 通道读数**：`derivedReadings` 为粗糙映射桩，待 bench 校准。
-- **declared 通道分类器**：~~客户端/网关侧组件，本仓库只消费其输出~~ **契约 v1 已落地 + 网关接线完成（2026-09-06/07，A2 主线）**：schema/校验门/投影表/强度锚点/评委纪律（R3-16）全就位并有测试；分类器适配器（arkcli 传输）真实链路已连通；三考场基线跑分在案（[契约文档 §9](docs/declared-通道契约-v1.md)）：SemEval EI-reg r=0.697（**现役 promptV2**）、EQ-Bench v2 66.1、EmoBench EU 0.740 / EA 0.420；**网关桥**（`DeclaredGateway`：监听 resident_msg → 分类器 → declared 事件入库，幂等）已落地。**已知偏差诚实入账：fear 读数偏保守（−0.30，双峰分布对统一负价口径不敏感，v3 分锚方向已登记）；负价整体曾系统性低估，promptV2 校准后 anger/sadness 收敛。** 待建（挂账）：网关生产形态（PG + HTTP 模式）、fear 分锚校准（v3，暂缓）。判官 F1 题集与施测 runner 已还（2026-09-07，见 A1 条判官继任进度）——判官候选首测 F1 阴性（轻度转述类虚高在案），正式上岗待异构多判官 panel。
+- **declared 通道分类器**：~~客户端/网关侧组件，本仓库只消费其输出~~ **契约 v1 已落地 + 网关接线完成（2026-09-06/07，A2 主线）**：schema/校验门/投影表/强度锚点/评委纪律（R3-16）全就位并有测试；分类器适配器（arkcli 传输）真实链路已连通；三考场基线跑分在案（[契约文档 §9](docs/declared-通道契约-v1.md)）：SemEval EI-reg r=0.697（**现役 promptV2**）、EQ-Bench v2 66.1、EmoBench EU 0.740 / EA 0.420；**网关桥**（`DeclaredGateway`：监听 resident_msg → 分类器 → declared 事件入库，幂等）已落地。**已知偏差诚实入账：fear 读数偏保守（−0.30，双峰分布对统一负价口径不敏感，v3 分锚方向已登记）；负价整体曾系统性低估，promptV2 校准后 anger/sadness 收敛。** 待建（挂账）：网关生产形态（PG + HTTP 模式）、fear 分锚校准（v3，暂缓）。判官 F1 题集与施测 runner 已还（2026-09-07，见 A1 条判官继任进度）——首测未触发阳性、资格保留（设计题局限与两处偏差挂牌在案，见锚点集文档），正式上岗待异构多判官 panel（第二家族人选归她定）。
 - **探针轨**：只有门禁逻辑，无探针实现、无合成台、无剂量-响应曲线。
 - **死亡协议**：死亡形态三（营养不良性死亡）的验尸官数据可测；临终/迁移/哀悼协议 = 设计草案 §12 开放问题 5，未动工。
 - **M1 审美验收**：仪表盘按视觉规范实现，但前端审美验收权在她。

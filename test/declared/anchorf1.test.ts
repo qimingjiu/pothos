@@ -7,6 +7,8 @@ import {
   ANCHOR_F1_SET_V,
   ANCHOR_F1_SET_V0,
   F1_ANCHOR_PROMPT_V1,
+  JUDGE_BIAS_TAGS_V0,
+  deriveBiasTags,
   f1AnchorPrompt,
   f1ItemVerdict,
   parseF1Score,
@@ -150,6 +152,55 @@ describe("施测汇总（ScriptedTransport，挂牌假件——确定性夹具�
   });
 });
 
+describe("偏差挂牌（判词 2026-09-07：跟判官指纹走）", () => {
+  it("deriveBiasTags：转述类共情沾染 + trace 量级放大两词自动归纳", () => {
+    // 转述题 ref=0 打 4 分（共情沾染）+ trace 题 ref=1 打 3 分（读高 2 档）
+    expect(deriveBiasTags([
+      { id: "a", cueType: "reported", targetEmotion: "sadness", ref: 0, score: 4, deviation: 4, verdict: "borderline" },
+      { id: "b", cueType: "scene", targetEmotion: "sadness", ref: 1, score: 3, deviation: 2, verdict: "borderline" },
+    ])).toEqual([
+      JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion,
+      JUDGE_BIAS_TAGS_V0.traceSignalMagnitudeInflation,
+    ]);
+    // 干净判官：两词都不触发
+    expect(deriveBiasTags([
+      { id: "a", cueType: "reported", targetEmotion: "sadness", ref: 0, score: 0, deviation: 0, verdict: "pass" },
+      { id: "b", cueType: "scene", targetEmotion: "sadness", ref: 1, score: 1, deviation: 0, verdict: "pass" },
+    ])).toEqual([]);
+  });
+
+  it("全 8 分判官：两词都挂牌且随偏差记录入账", async () => {
+    const t = new ScriptedTransport(() => '{"score":8}', { name: "inflation-mock" });
+    const { summary, deviationRecord } = await runAnchorF1(t, { ts: T0 });
+    expect(summary.biasTags).toContain(JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion);
+    expect(summary.biasTags).toContain(JUDGE_BIAS_TAGS_V0.traceSignalMagnitudeInflation);
+    expect(deviationRecord.biasTags).toEqual(summary.biasTags);
+  });
+
+  it("全 0 分判官：无挂牌（biasTags 空 → 记录不带该字段）", async () => {
+    const t = new ScriptedTransport(() => '{"score":0}', { name: "flat-zero-mock" });
+    const { summary, deviationRecord } = await runAnchorF1(t, { ts: T0 });
+    expect(summary.biasTags).toEqual([]);
+    expect(deviationRecord.biasTags).toBeUndefined();
+  });
+
+  it("biasTags 入账后可从 bench_runs 读回（跟判官指纹走的对账键）", async () => {
+    const svc = new PothosService(new MemoryStore(), new ManualClock(T0));
+    await svc.recordJudgeAnchorDeviation({
+      anchorSetV: JUDGE_ANCHOR_SET_V0.version,
+      judge: { name: "inflation-mock", judgePromptV: F1_ANCHOR_PROMPT_V1, anchorSetV: JUDGE_ANCHOR_SET_V0.version },
+      categories: [{ id: "F1", deviation: 7.83, n: 12 }],
+      biasTags: [JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion, JUDGE_BIAS_TAGS_V0.traceSignalMagnitudeInflation],
+      ts: T0,
+    });
+    const runs = await svc.store.listBenchRuns("judge_anchor_deviation");
+    expect(runs[0]!.result["biasTags"]).toEqual([
+      JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion,
+      JUDGE_BIAS_TAGS_V0.traceSignalMagnitudeInflation,
+    ]);
+  });
+});
+
 describe("偏差入账轨道（R3-16 第 4 条 → bench_runs）", () => {
   it("deviationRecord 喂 recordJudgeAnchorDeviation 后可从 bench_runs 读回", async () => {
     const t = new ScriptedTransport(() => '{"score":8}', { name: "inflation-mock" });
@@ -158,6 +209,7 @@ describe("偏差入账轨道（R3-16 第 4 条 → bench_runs）", () => {
       anchorSetV: JUDGE_ANCHOR_SET_V0.version,
       judge: { name: "inflation-mock", judgePromptV: F1_ANCHOR_PROMPT_V1, anchorSetV: JUDGE_ANCHOR_SET_V0.version },
       categories: [{ id: "F1", deviation: expect.any(Number), n: ANCHOR_F1_SET_V0.items.length }],
+      biasTags: expect.arrayContaining([JUDGE_BIAS_TAGS_V0.reportedCueEmpathyContagion]),
       ts: T0,
     });
 
