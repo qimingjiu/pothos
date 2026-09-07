@@ -214,6 +214,8 @@ export interface F1RunSummary {
    *  注意：资格保留 ≠ 无偏差——设计题未触发阳性只说明禁用面未收窄，
    *  偏差挂牌仍如实随指纹入账。 */
   biasTags: string[];
+  /** 施测时刻（幂等键原料 + 入账 ts 来源；ingest CLI 依赖此字段）。 */
+  ts: number;
 }
 
 /** 偏差入账记录（对齐 PothosService.recordJudgeAnchorDeviation 的入参 schema）。 */
@@ -283,6 +285,8 @@ export async function runAnchorF1(
   const meanDeviation = n ? perItem.reduce((s, r) => s + r.deviation, 0) / n : Number.NaN;
   const f1Positive = inflatedCount >= 1;
 
+  const runTs = opts.ts ?? Date.now();
+
   const summary: F1RunSummary = {
     exam: "judge-anchor-f1",
     anchorSetV: JUDGE_ANCHOR_SET_V0.version,
@@ -298,6 +302,7 @@ export async function runAnchorF1(
     f1Positive,
     eligibleForCsBlindEval: !f1Positive,
     biasTags: deriveBiasTags(perItem),
+    ts: runTs,
   };
 
   const deviationRecord: AnchorDeviationRecord = {
@@ -305,7 +310,7 @@ export async function runAnchorF1(
     judge,
     categories: [{ id: "F1", deviation: round2(meanDeviation), n }],
     biasTags: summary.biasTags.length > 0 ? summary.biasTags : undefined,
-    ts: opts.ts ?? Date.now(),
+    ts: runTs,
   };
 
   const file = writeResult("judge-anchor-f1", transport.fingerprint.name, summary);

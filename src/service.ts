@@ -54,8 +54,42 @@ import {
 } from "./core/contingency-log.js";
 import { contingencyReport } from "./core/contingency.js";
 import { selineReadings as computeSeline, type SelineReading } from "./core/seline.js";
+import { createHash } from "node:crypto";
 
 const DAY = 86_400_000;
+
+// ── 判官入账幂等键（记忆女神传家宝）──
+// 同一份考场结果重复灌不得产生重复账。键 = run 指纹的稳定 hash：
+// judge_agreement = panelId + judges 指纹集合 + metric + ts；
+// judge_anchor_deviation = judge 指纹 + anchorSetV + categories + ts。
+// ts 进键：同一 panel 不同时段跑两轮是两笔账，不合并。
+function stableHash(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+
+function judgeAgreementIngestId(a: {
+  panelId: string;
+  judges: Array<{ name: string; judgePromptV: string; anchorSetV: string }>;
+  metric: string;
+  ts: number;
+}): string {
+  // judges 排序后拼接，使顺序不影响键
+  const judgesKey = [...a.judges]
+    .sort((x, y) => x.name.localeCompare(y.name))
+    .map((j) => `${j.name}|${j.judgePromptV}|${j.anchorSetV}`)
+    .join(";");
+  return stableHash(`agreement|${a.panelId}|${judgesKey}|${a.metric}|${a.ts}`);
+}
+
+function judgeAnchorDeviationIngestId(d: {
+  anchorSetV: string;
+  judge: { name: string; judgePromptV: string; anchorSetV: string };
+  categories: Array<{ id: string; deviation: number; n: number }>;
+  ts: number;
+}): string {
+  const catKey = d.categories.map((c) => `${c.id}|${c.deviation}|${c.n}`).join(";");
+  return stableHash(`deviation|${d.judge.name}|${d.judge.judgePromptV}|${d.anchorSetV}|${catKey}|${d.ts}`);
+}
 
 export interface IngestResult {
   stored: boolean;
@@ -538,10 +572,18 @@ export class PothosService {
    * 判官入账轨（R3-16 第 3 条 + R3-8 本体二分）。
    * 判官间一致性是仪器事件（推断层，禁止冒充事实），入账走 bench_runs
    * （append-only），不进生产 events 流。异构条款在契约校验层强制。
+   *
+   * 幂等（记忆女神传家宝）：ingestId 是 run 指纹的稳定 hash，同一份结果重复灌
+   * 答已在账不重记。actor = 谁执行的（可审计管理动作）。
    */
   async recordJudgeAgreement(
-    agreement: { contractV: number; panelId: string; judges: Array<{ name: string; judgePromptV: string; anchorSetV: string }>; metric: string; value: number; n: number; ts: number; note?: string },
-  ): Promise<void> {
+    agreement: { contractV: number; panelId: string; judges: Array<{ name: string; judgePromptV: string; anchorSetV: string }>; metric: string; value: number; n: number; ts: number; note?: string; actor?: string },
+  ): Promise<{ stored: boolean; duplicate: boolean }> {
+    const ingestId = judgeAgreementIngestId(agreement);
+    const existing = await this.store.listBenchRuns("judge_agreement");
+    if (existing.some((r) => (r.result as Record<string, unknown>)["ingestId"] === ingestId)) {
+      return { stored: false, duplicate: true };
+    }
     await this.store.appendBenchRun({
       ts: agreement.ts,
       benchKind: "judge_agreement",
@@ -556,9 +598,12 @@ export class PothosService {
         value: agreement.value,
         n: agreement.n,
         note: agreement.note,
+        ingestId, // 幂等键：同一 panel 同一 metric 同一 ts 的结果重复灌 = 已在账
+        actor: agreement.actor ?? "unknown", // 来源登记：谁执行了入账
       },
       modelVersion: "pothos-v0.1.0",
     });
+    return { stored: true, duplicate: false };
   }
 
   /**
@@ -567,8 +612,13 @@ export class PothosService {
    * biasTags：判官偏差挂牌（JUDGE_BIAS_TAGS_V0 词表，跟判官指纹走——panel 时随指纹引用）。
    */
   async recordJudgeAnchorDeviation(
-    deviation: { anchorSetV: string; judge: { name: string; judgePromptV: string; anchorSetV: string }; categories: Array<{ id: string; deviation: number; n: number }>; biasTags?: string[]; ts: number },
-  ): Promise<void> {
+    deviation: { anchorSetV: string; judge: { name: string; judgePromptV: string; anchorSetV: string }; categories: Array<{ id: string; deviation: number; n: number }>; biasTags?: string[]; ts: number; actor?: string },
+  ): Promise<{ stored: boolean; duplicate: boolean }> {
+    const ingestId = judgeAnchorDeviationIngestId(deviation);
+    const existing = await this.store.listBenchRuns("judge_anchor_deviation");
+    if (existing.some((r) => (r.result as Record<string, unknown>)["ingestId"] === ingestId)) {
+      return { stored: false, duplicate: true };
+    }
     await this.store.appendBenchRun({
       ts: deviation.ts,
       benchKind: "judge_anchor_deviation",
@@ -580,9 +630,12 @@ export class PothosService {
         judge: deviation.judge,
         categories: deviation.categories,
         ...(deviation.biasTags ? { biasTags: deviation.biasTags } : {}),
+        ingestId, // 幂等键：同判官同锚点集同 ts 的偏差重复灌 = 已在账
+        actor: deviation.actor ?? "unknown",
       },
       modelVersion: "pothos-v0.1.0",
     });
+    return { stored: true, duplicate: false };
   }
 
   /** 耦合检测器（观测者的观测者）：changelog × 指标时间线。 */

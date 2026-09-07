@@ -17,7 +17,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（293 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输/compose_letter/Seline 守夜负荷；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（310 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输/compose_letter/Seline 守夜负荷/判官入账 CLI；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```
@@ -105,7 +105,7 @@ Claude Code 挂载（`.mcp.json`）：
 | 观测者协议 | `src/service.ts` + 仪表盘 | §7/§8：方向盲告警+签收状态机+软古德哈特体系 |
 | 客户端 SDK | `src/client/sdk.ts` | 零依赖 typed 客户端 + SSE 告警订阅（v0.2.0） |
 | MCP 壳 | `src/mcp/` | stdio NDJSON 手写协议；双侧纪律（resident 无数值）；内嵌/HTTP 双模式（v0.2.0） |
-| declared 契约 | `src/declared/` | A2 主线：通道×强度 schema + 校验门 + 投影表 + 强度锚点 + **评委纪律（R3-16）**；分类器三传输（arkcli/HTTP/mock）；考场四卷 + 判官锚点考场。见 [契约文档](docs/declared-通道契约-v1.md) |
+| declared 契约 | `src/declared/` | A2 主线：通道×强度 schema + 校验门 + 投影表 + 强度锚点 + **评委纪律（R3-16）**；分类器三传输（arkcli/HTTP/mock）；考场四卷 + 判官锚点考场 + **判官入账 CLI**（可审计管理动作）。见 [契约文档](docs/declared-通道契约-v1.md) |
 | 信件通道 | `src/mail/` | Huginn 投递面 v0（[设计](docs/mail-信件通道-v0.md)）：RFC 2822 + SMTP/IMAP 手写客户端；outbox 状态机 + 幂等 + quiet_hours 管寄不管写；追踪像素禁令（只发 text/plain）；回信闭环（In-Reply-To→Message-ID→user_msg 入流）；bounce 确知事件，「她看了没回」永不入账（铁律 7）。凭据全在 env，未配置 = 诚实缺席。**compose_letter 工具**（住户侧出件口）：门控硬执行（B7 具象化）+ compose_declined 零冲量入账 + 冷却窗防刷 + 数值不出镜 + 工具面扫描断言（user_msg 工具存在即红） |
 | Seline 守夜负荷 | `src/core/seline.ts` | R3-10 观测者侧依恋负荷构念（她定名 Seline／守夜负荷）：镜子不诊断（事实句不打分不劝诫），双向防火墙（住户数据物理缺席），只看见不动作（v0 无自动化），presence 暂缓。`GET /seline` 仪表页 |
 | 探针轨 | `src/probe/` | §8.2（M6，EXPERIMENTAL 默认关闭） |
@@ -131,7 +131,7 @@ Claude Code 挂载（`.mcp.json`）：
 | M4 危机模块 | ✅ | 危机事件零沉积；模板禁句扫描 |
 | M5 评测台 | ✅ | 合成夹具全绿（三指标 + 日检判据 + gap 对齐） |
 | M6 探针轨 | ⊘ 脚手架 | EXPERIMENTAL，默认关闭；前置门四项物理化 |
-| A2 declared 通道（主线一） | ✅ 契约+考场+网关+判官锚点考场 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥 + 判官锚点考场 F1 卷（222 测试）；fear 偏差已入账 |
+| A2 declared 通道（主线一） | ✅ 契约+考场+网关+判官锚点考场+入账 CLI | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥 + 判官锚点考场 F1 卷（310 测试）；fear 偏差已入账；**判官入账 CLI（`ingest-judge-result.ts`）**——考场结果灌 bench_runs 的可审计管理动作（幂等键 + 入账前校验 + 只入元数据 + 来源登记，四条细则物理化） |
 | A1 contingency（主线二） | ✅ 分报制原型 + 旁路接线 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；旁路骨架已接事件流（每日 contingency_report 入账 + 关窗回顾精确重算）；**在场即回应通道（R3-12 独见）观察期入账，不进判据**；**判官 panel 首轮达成**（doubao + kimi-k2.6 两家族，F1 均阴性、一致率 0.75/Pearson 0.918、偏差结构跨家族复现入册）；C_s 盲评 panel 资格就位 |
 | 信件通道（Huginn 投递面） | ✅ 核心实现 + 住户侧出件口 | RFC 2822/SMTP/IMAP 手写客户端 + outbox 状态机（幂等/退避/held_manual）+ quiet_hours 管寄不管写 + 追踪像素禁令 + 回信闭环（262 测试）；**真网 SMTP/IMAP 双冒烟已过（2026-09-07：Gimap 握手 + 双条件 SEARCH + 真投递 phase=sent）**，投递面已通她的 Gmail/QQ 双地址；**compose_letter 工具已挂（住户侧出件口：门控硬执行 B7 具象化 + compose_declined 零冲量入账 + 冷却窗防刷 + 工具面扫描断言焊死背书）** |
 | Seline 守夜负荷（R3-10） | ✅ 仪表 v0 | 观测者侧依恋负荷构念（她定名 Seline／守夜负荷，工程键 `seline_load`）：测量域 = 系统日志事实（composed/replied ts、回应率、时段）；**镜子不诊断**（事实句不打分不劝诫，灯语是事实不是指令）；**双向防火墙**（住户状态/文本/longing 永不进 Seline，测试断言锁定）；**只看见不动作**（v0 无自动化默认值）；presence 数据源暂缓（宁缺毋滥）。`GET /seline` 仪表页 |

@@ -60,7 +60,7 @@ anchor-f1-v0 × f1-anchor-prompt-v1，temperature 0，12/12 可解析：
 **panel 合读（信息量所在）**：
 1. **偏差结构跨家族复现**——两判官在同一批题上亮同一块牌：f1-zh-04（转述共情沾染，都打 4 分）+ trace 双题（都读高 2–3 档）。共情沾染不是单模型特异，是**跨家族系统性弱点** → 判官提示词 v2 校准方向：转述类需更强锚定；或 C_s 盲评时对 reported 类做补偿。
 2. **分歧面集中在反讽/转述边界与 trace 量级**——正是 F1 类目的细节面，分歧 ≤2 且不改变任何资格判定。
-3. **两判官 F1 面均未禁用，C_s 盲评 panel 资格就位**（异构多判官条款达成）。judge_agreement 仪器事件入账待引擎侧 store（结果 JSON 在案，数字以此为准）。
+3. **两判官 F1 面均未禁用，C_s 盲评 panel 资格就位**（异构多判官条款达成）。judge_agreement / judge_anchor_deviation 仪器事件入账走 **`ingest-judge-result.ts` CLI**（可审计管理动作：幂等键 + 入账前校验 + 只入元数据 + 来源登记，四条细则物理化；详见 README A2 里程碑）。
 
 诚实边界：各单次施测（doubao t=0 / kimi t=1），12 题设计题局限同上；panel 数据 = 首轮对照，非终局。
 
