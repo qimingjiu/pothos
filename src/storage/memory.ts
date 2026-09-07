@@ -10,8 +10,11 @@ import type {
   BenchRunRow,
   CanaryRunRow,
   EventStore,
+  LetterPhase,
+  LetterRow,
   MaLedgerRow,
   MailboxRow,
+  NewLetterRow,
   ParamChangeRow,
   RawEvent,
   SnapshotRow,
@@ -38,6 +41,8 @@ export class MemoryStore implements EventStore {
   private ledgerId = 0;
   private mailboxRows: MailboxRow[] = [];
   private mailboxId = 0;
+  private letters = new Map<string, LetterRow>();
+  private letterIdSeq = 0;
   private benchRuns: BenchRunRow[] = [];
   private canaryRuns: CanaryRunRow[] = [];
 
@@ -148,6 +153,61 @@ export class MemoryStore implements EventStore {
     let out = sinceTs == null ? [...this.mailboxRows] : this.mailboxRows.filter((m) => m.ts >= sinceTs);
     out.sort((a, b) => b.ts - a.ts);
     return out.slice(0, limit).map((m) => ({ ...m }));
+  }
+
+  // ── 信件投递 outbox（语义与 postgres 适配器一致）──
+
+  async insertLetter(l: NewLetterRow): Promise<LetterRow | null> {
+    if (this.letters.has(l.letterId)) return null; // Huginn 门 1：同 letterId 幂等
+    this.letterIdSeq += 1;
+    const row: LetterRow = {
+      id: this.letterIdSeq,
+      letterId: l.letterId,
+      threadId: l.threadId ?? null,
+      toAddr: l.toAddr,
+      subject: l.subject,
+      body: l.body,
+      phase: "composed",
+      composedTs: l.composedTs,
+      sentTs: null,
+      bounceReason: null,
+      messageId: l.messageId,
+      replyMessageId: null,
+      attemptCount: 0,
+      updatedAt: l.composedTs,
+    };
+    this.letters.set(l.letterId, row);
+    return { ...row };
+  }
+
+  async getLetter(letterId: string): Promise<LetterRow | null> {
+    const l = this.letters.get(letterId);
+    return l ? { ...l } : null;
+  }
+
+  async getLetterByMessageId(messageId: string): Promise<LetterRow | null> {
+    for (const l of this.letters.values()) {
+      if (l.messageId === messageId) return { ...l };
+    }
+    return null;
+  }
+
+  async listLettersByPhase(phases: LetterPhase[]): Promise<LetterRow[]> {
+    const set = new Set(phases);
+    return [...this.letters.values()].filter((l) => set.has(l.phase)).sort((a, b) => a.composedTs - b.composedTs).map((l) => ({ ...l }));
+  }
+
+  async transitionLetter(
+    letterId: string,
+    from: LetterPhase,
+    to: LetterPhase,
+    patch?: Partial<Pick<LetterRow, "sentTs" | "bounceReason" | "replyMessageId" | "attemptCount" | "threadId">> & { atTs?: number },
+  ): Promise<LetterRow | null> {
+    const l = this.letters.get(letterId);
+    if (!l || l.phase !== from) return null; // 幂等：状态不符 = 别人已推进，静默不重放
+    const { atTs, ...rest } = patch ?? {};
+    Object.assign(l, rest, { phase: to, updatedAt: atTs ?? Date.now() });
+    return { ...l };
   }
 
   async appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void> {

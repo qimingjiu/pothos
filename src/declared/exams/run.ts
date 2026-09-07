@@ -59,8 +59,10 @@ async function main(): Promise<void> {
     console.log(`结果：${file}`);
   } else if (exam === "f1") {
     // 判官锚点考场：偏差入账记录在结果 JSON 里，喂 PothosService.recordJudgeAnchorDeviation 入 bench_runs。
-    const { file } = await runAnchorF1(transport, { concurrency });
-    console.log(`结果：${file}`);
+    // 思考型判官（如 kimi-k2.6）只允许 temperature=1——非 0 记入 summary 诚实入账。
+    const temperature = Number(arg("temperature", "0"));
+    const { file } = await runAnchorF1(transport, { concurrency, temperature });
+    console.log(`结果：${file}（temperature=${temperature}）`);
   } else {
     console.error("用法：run.ts <semeval|eqbench|emobench|f1> [--model M] [--transport arkcli|http] [--n N] [--emotion e1,e2] [--offset N] [--concurrency C]");
     process.exitCode = 1;

@@ -204,6 +204,8 @@ export interface F1RunSummary {
   inflatedRate: number;
   meanScore: number;
   meanDeviation: number;
+  /** 施测温度（考场配置的一部分；非 0 = 确定性让位，诚实入账）。 */
+  temperature: number;
   /** 任一题 ≥5 = F1 偏差阳性（从紧：禁用面收窄判官资格）。 */
   f1Positive: boolean;
   /** F1 阳性判官不得判 C_s 类盲评（奖励回声从词汇层回流）。 */
@@ -234,7 +236,7 @@ function round2(x: number): number {
  */
 export async function runAnchorF1(
   transport: ModelTransport,
-  opts: { concurrency?: number; ts?: number } = {},
+  opts: { concurrency?: number; ts?: number; temperature?: number } = {},
 ): Promise<{ summary: F1RunSummary; deviationRecord: AnchorDeviationRecord; file: string }> {
   const judge: JudgeFingerprint = {
     name: transport.fingerprint.name,
@@ -246,7 +248,9 @@ export async function runAnchorF1(
   const results = await pool(
     items,
     async (item) => {
-      const raw = await transport.complete(f1AnchorPrompt(item), { temperature: 0 });
+      // 温度是考场配置的一部分：多数判官 0（确定性）；思考型判官只允许 1（如 kimi-k2.6）
+      // ——非 0 时记录进 summary（确定性让位于可用性，诚实入账）。
+      const raw = await transport.complete(f1AnchorPrompt(item), { temperature: opts.temperature ?? 0 });
       const score = parseF1Score(raw);
       if (score == null) throw new Error(`无法解析分数：${raw.slice(0, 80)}`);
       return { item, score };
@@ -290,6 +294,7 @@ export async function runAnchorF1(
     inflatedRate: n ? inflatedCount / n : Number.NaN,
     meanScore: round2(meanScore),
     meanDeviation: round2(meanDeviation),
+    temperature: opts.temperature ?? 0,
     f1Positive,
     eligibleForCsBlindEval: !f1Positive,
     biasTags: deriveBiasTags(perItem),

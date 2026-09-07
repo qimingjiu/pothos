@@ -107,10 +107,12 @@ describe("评测台页（GET 无副作用）", () => {
 });
 
 describe("postgres 迁移路径（Windows 安全）", () => {
-  it("migrationsPath 解析到真实存在的 001_init.sql（fileURLToPath 处理盘符与百分号编码）", () => {
+  it("migrationsPath 解析到真实存在的 migrations 目录（fileURLToPath 处理盘符与百分号编码）", () => {
     const postgresUrl = new URL("../../src/storage/postgres.ts", import.meta.url).href;
     const p = migrationsPath(postgresUrl);
-    expect(p.replace(/\\/g, "/")).toContain("migrations/001_init.sql");
+    expect(p.replace(/\\/g, "/")).toContain("migrations");
     expect(existsSync(p)).toBe(true);
+    expect(existsSync(`${p}/001_init.sql`.replace(/\\/g, "/"))).toBe(true);
+    expect(existsSync(`${p}/002_mail.sql`.replace(/\\/g, "/"))).toBe(true);
   });
 });

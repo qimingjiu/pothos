@@ -209,12 +209,15 @@ export class ArkHttpTransport implements ModelTransport {
       signal: AbortSignal.timeout(this.timeoutMs),
     } as RequestInit);
     if (!res.ok) {
-      let code = `HTTP ${res.status}`;
+      let detail = "";
       try {
-        const j = (await res.json()) as { error?: { code?: string; message?: string } };
-        if (j.error?.code) code = `${j.error.code}（${(j.error.message ?? "").slice(0, 120)}）`;
-      } catch { /* 非 JSON 错误体：保留状态码 */ }
-      throw new Error(`ark v3 调用失败：${code}`);
+        const j = (await res.json()) as { error?: { code?: string; message?: string; type?: string } };
+        const code = j.error?.code ?? j.error?.type ?? `HTTP ${res.status}`;
+        detail = `${code}（${(j.error?.message ?? "").slice(0, 160)}）`;
+      } catch {
+        detail = `HTTP ${res.status}`;
+      }
+      throw new Error(`ark v3 调用失败：${detail}`);
     }
     const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const content = j.choices?.[0]?.message?.content;

@@ -10,6 +10,7 @@ export type EventKind =
   | "resident_msg" // 住户表达（declared 通道的原料，由客户端打标回传）
   | "world" // 世界事件（杂食格：她不是唯一燃料）
   | "ma_product" // 間产物回执（消化/创作/打猎/好奇/Decline）
+  | "letter" // 信件生命周期（Huginn 投递面：composed/held/sent/bounced/replied；内部路径专用，不进 /events 白名单）
   | "presence" // 在场标记（R3-12 独见「在场即回应」通道：登录/在线是最慢的回应通道；引擎内部路径专用，不进 /events 白名单）
   | "declared" // declared 通道分类器读数（情绪×强度）
   | "param_change" // 参数变更事件（对住户而言，「被手术」也是生命事件）
@@ -169,6 +170,11 @@ export function computeValuation(
     case "presence":
       // R3-12「在场即回应」通道的显式标记：零冲量——在场是回应通道不是扰动源，
       // 动力学不因登录/在线漂移（与 declared 读数同族：测量面不动 fold）。
+      break;
+    case "letter":
+      // 信件生命周期（composed/held/sent/bounced/replied）：住户侧动作的事实登记，
+      // 不冲她的动力学——她收到信的状态变化在引擎视野之外（无已读回执，铁律 7）；
+      // 她回信时另有 user_msg 入流（那是主燃料，val/load 照常计价）。
       break;
     case "param_change":
       // 「被手术」留痕：扰动负载上升，无方向（§9 Grok 补丁）

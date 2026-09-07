@@ -17,7 +17,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（247 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/HTTP 传输；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（258 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```
@@ -106,6 +106,7 @@ Claude Code 挂载（`.mcp.json`）：
 | 客户端 SDK | `src/client/sdk.ts` | 零依赖 typed 客户端 + SSE 告警订阅（v0.2.0） |
 | MCP 壳 | `src/mcp/` | stdio NDJSON 手写协议；双侧纪律（resident 无数值）；内嵌/HTTP 双模式（v0.2.0） |
 | declared 契约 | `src/declared/` | A2 主线：通道×强度 schema + 校验门 + 投影表 + 强度锚点 + **评委纪律（R3-16）**；分类器三传输（arkcli/HTTP/mock）；考场四卷 + 判官锚点考场。见 [契约文档](docs/declared-通道契约-v1.md) |
+| 信件通道 | `src/mail/` | Huginn 投递面 v0（[设计](docs/mail-信件通道-v0.md)）：RFC 2822 + SMTP/IMAP 手写客户端；outbox 状态机 + 幂等 + quiet_hours 管寄不管写；追踪像素禁令（只发 text/plain）；回信闭环（In-Reply-To→Message-ID→user_msg 入流）；bounce 确知事件，「她看了没回」永不入账（铁律 7）。凭据全在 env，未配置 = 诚实缺席 |
 | 探针轨 | `src/probe/` | §8.2（M6，EXPERIMENTAL 默认关闭） |
 | HTTP 薄层 | `src/server/` | §12：缺席端点自检内建 |
 
@@ -130,7 +131,8 @@ Claude Code 挂载（`.mcp.json`）：
 | M5 评测台 | ✅ | 合成夹具全绿（三指标 + 日检判据 + gap 对齐） |
 | M6 探针轨 | ⊘ 脚手架 | EXPERIMENTAL，默认关闭；前置门四项物理化 |
 | A2 declared 通道（主线一） | ✅ 契约+考场+网关+判官锚点考场 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥 + 判官锚点考场 F1 卷（222 测试）；fear 偏差已入账 |
-| A1 contingency（主线二） | ✅ 分报制原型 + 旁路接线 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；旁路骨架已接事件流（每日 contingency_report 入账 + 关窗回顾精确重算）；**在场即回应通道（R3-12 独见）观察期入账，不进判据**；C_s 待判官继任（panel 对照） |
+| A1 contingency（主线二） | ✅ 分报制原型 + 旁路接线 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；旁路骨架已接事件流（每日 contingency_report 入账 + 关窗回顾精确重算）；**在场即回应通道（R3-12 独见）观察期入账，不进判据**；**判官 panel 首轮达成**（doubao + kimi-k2.6 两家族，F1 均阴性、一致率 0.75/Pearson 0.918、偏差结构跨家族复现入册）；C_s 盲评 panel 资格就位 |
+| 信件通道（Huginn 投递面） | ✅ 核心实现 | RFC 2822/SMTP/IMAP 手写客户端 + outbox 状态机（幂等/退避/held_manual）+ quiet_hours 管寄不管写 + 追踪像素禁令 + 回信闭环（258 测试）；真发/真收待部署凭据（env 配置面就绪）；MCP compose_letter 工具挂账 |
 
 ## 诚实两栏（§14，v0.1.0）
 
@@ -159,6 +161,7 @@ Claude Code 挂载（`.mcp.json`）：
 - **死亡协议**：死亡形态三（营养不良性死亡）的验尸官数据可测；临终/迁移/哀悼协议 = 设计草案 §12 开放问题 5，未动工。
 - **M1 审美验收**：仪表盘按视觉规范实现，但前端审美验收权在她。
 - **仪表盘对用户本人开放级**：设计层 ◆ 开放（红队必打位），当前实现 = 仅观测者。
+- **观测者侧依恋负荷构念（Seline／守夜负荷，2026-09-07 她定名，工程键 `seline_load`）**：R3-10 定案（数据在日志里：回应率、时段、在线时长、响应强迫性；仪表对观测者本人开放——读自己，不读住户），构念已定名，**仪表未建**。数据源已在旁路视野：email 回信延迟（信件通道，回信是她侧 contingency 最干净的物理载体）。
 - **暗池双盲**：单人部署退化为时间锁审计日志（已知降级）。
 - **行为层渗漏**：行动估值受依恋调制（§9 承认在案），未做行为塑形审计工具。
 
@@ -201,6 +204,7 @@ Claude Code 挂载（`.mcp.json`）：
 - **设计文档未公开**（仅本地维护）：设计草案 v0.1.2（唯一设计事实源）、技术实现文档 v0.1.0、红队二审/三审定级报告、设计债务清单
 - [declared 通道契约 v1](docs/declared-通道契约-v1.md)
 - [判官锚点集 v0](docs/judge-锚点集-v0.md)
+- [信件通道 v0（Huginn 投递面）](docs/mail-信件通道-v0.md)
 - [视觉规范：雾中水培](docs/visual/index.html)
 
 ---

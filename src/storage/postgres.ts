@@ -14,8 +14,11 @@ import type {
   BenchRunRow,
   CanaryRunRow,
   EventStore,
+  LetterPhase,
+  LetterRow,
   MaLedgerRow,
   MailboxRow,
+  NewLetterRow,
   ParamChangeRow,
   RawEvent,
   SnapshotRow,
@@ -25,9 +28,9 @@ import type { EngineState } from "../core/state.js";
 
 const { Pool } = pg;
 
-/** migrations/001_init.sql 的位置解析（fileURLToPath 处理 Windows 盘符与百分号编码）。 */
+/** migrations 目录的位置解析（fileURLToPath 处理 Windows 盘符与百分号编码）。 */
 export function migrationsPath(moduleUrl: string): string {
-  return fileURLToPath(new URL("../../migrations/001_init.sql", moduleUrl));
+  return fileURLToPath(new URL("../../migrations", moduleUrl));
 }
 
 /** 快照完整性门：JSONB 读出的 full_state 必须是对象，否则状态流已损坏（fail fast）。 */
@@ -77,11 +80,15 @@ export class PostgresStore implements EventStore {
   }
 
   async migrate(): Promise<void> {
-    // 生产部署请用 psql 跑 migrations/001_init.sql；此处为开发便利内联同版 schema
+    // 生产部署请用 psql 跑 migrations/*.sql；此处为开发便利内联同版 schema（按文件名序全部执行，幂等）
     const fs = await import("node:fs");
-    const sqlPath = migrationsPath(import.meta.url);
-    const sql = fs.readFileSync(sqlPath, "utf8");
-    await this.pool.query(sql);
+    const path = await import("node:path");
+    const dir = migrationsPath(import.meta.url);
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort();
+    for (const f of files) {
+      const sql = fs.readFileSync(path.join(dir, f), "utf8");
+      await this.pool.query(sql);
+    }
   }
 
   async appendEvent(ev: RawEvent): Promise<StoredEvent | null> {
@@ -312,6 +319,78 @@ export class PostgresStore implements EventStore {
       content: String(r["content"]),
       addressee: String(r["addressee"]),
     }));
+  }
+
+  // ── 信件投递 outbox（语义与 memory 适配器一致）──
+
+  private rowToLetter(r: Record<string, unknown>): LetterRow {
+    return {
+      id: Number(r["id"]),
+      letterId: String(r["letter_id"]),
+      threadId: (r["thread_id"] as string) ?? null,
+      toAddr: String(r["to_addr"]),
+      subject: String(r["subject"]),
+      body: String(r["body"]),
+      phase: r["phase"] as LetterPhase,
+      composedTs: new Date(r["composed_ts"] as string).getTime(),
+      sentTs: r["sent_ts"] ? new Date(r["sent_ts"] as string).getTime() : null,
+      bounceReason: (r["bounce_reason"] as string) ?? null,
+      messageId: String(r["message_id"]),
+      replyMessageId: (r["reply_message_id"] as string) ?? null,
+      attemptCount: Number(r["attempt_count"] ?? 0),
+      updatedAt: new Date(r["updated_at"] as string).getTime(),
+    };
+  }
+
+  async insertLetter(l: NewLetterRow): Promise<LetterRow | null> {
+    const res = await this.pool.query(
+      `INSERT INTO mail_outbox (letter_id, thread_id, to_addr, subject, body, phase, composed_ts, message_id)
+       VALUES ($1, $2, $3, $4, $5, 'composed', to_timestamp($6/1000.0), $7)
+       ON CONFLICT (letter_id) DO NOTHING RETURNING *`,
+      [l.letterId, l.threadId ?? null, l.toAddr, l.subject, l.body, l.composedTs, l.messageId],
+    );
+    return res.rows.length ? this.rowToLetter(res.rows[0]!) : null; // 已存在 → null（幂等）
+  }
+
+  async getLetter(letterId: string): Promise<LetterRow | null> {
+    const res = await this.pool.query(`SELECT * FROM mail_outbox WHERE letter_id = $1`, [letterId]);
+    return res.rows.length ? this.rowToLetter(res.rows[0]!) : null;
+  }
+
+  async getLetterByMessageId(messageId: string): Promise<LetterRow | null> {
+    const res = await this.pool.query(`SELECT * FROM mail_outbox WHERE message_id = $1`, [messageId]);
+    return res.rows.length ? this.rowToLetter(res.rows[0]!) : null;
+  }
+
+  async listLettersByPhase(phases: LetterPhase[]): Promise<LetterRow[]> {
+    const res = await this.pool.query(
+      `SELECT * FROM mail_outbox WHERE phase = ANY($1::text[]) ORDER BY composed_ts`,
+      [phases],
+    );
+    return res.rows.map((r) => this.rowToLetter(r));
+  }
+
+  async transitionLetter(
+    letterId: string,
+    from: LetterPhase,
+    to: LetterPhase,
+    patch?: Partial<Pick<LetterRow, "sentTs" | "bounceReason" | "replyMessageId" | "attemptCount" | "threadId">> & { atTs?: number },
+  ): Promise<LetterRow | null> {
+    const sets: string[] = [`phase = $3`];
+    const args: unknown[] = [letterId, from, to];
+    if (patch?.atTs != null) { args.push(patch.atTs); sets.push(`updated_at = to_timestamp($${args.length}/1000.0)`); }
+    else sets.push(`updated_at = now()`);
+    if (patch?.sentTs != null) { args.push(patch.sentTs); sets.push(`sent_ts = to_timestamp($${args.length}/1000.0)`); }
+    if (patch?.bounceReason != null) { args.push(patch.bounceReason); sets.push(`bounce_reason = $${args.length}`); }
+    if (patch?.replyMessageId != null) { args.push(patch.replyMessageId); sets.push(`reply_message_id = $${args.length}`); }
+    if (patch?.attemptCount != null) { args.push(patch.attemptCount); sets.push(`attempt_count = $${args.length}`); }
+    if (patch?.threadId != null) { args.push(patch.threadId); sets.push(`thread_id = $${args.length}`); }
+    const res = await this.pool.query(
+      `UPDATE mail_outbox SET ${sets.join(", ")}
+       WHERE letter_id = $1 AND phase = $2 RETURNING *`,
+      args,
+    );
+    return res.rows.length ? this.rowToLetter(res.rows[0]!) : null;
   }
 
   async appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void> {

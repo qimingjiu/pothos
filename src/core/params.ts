@@ -87,6 +87,11 @@ export interface Params {
   maSalienceTheta: number; // optional 级活动 salience 门控阈（廉价打分）
   maDigestQualityMin: number; // 消化产物计入 s_weave 的质量下限
 
+  // ── 信件通道（Huginn 投递面，v0）──
+  mailWindowStartHour: number; // 投递窗口起点（她的时区小时；quiet_hours 管寄不管写）
+  mailWindowEndHour: number; // 投递窗口终点
+  mailMaxAttempts: number; // 单信最大投递尝试数（退避后放弃→held_manual）
+
   // ── 探针轨（M6，EXPERIMENTAL 默认关闭）──
   dInjectMargin: number; // 安全不等式 d_op < d_inject×(1−margin) 的 margin（默认 0.3）
 
@@ -161,6 +166,10 @@ export const DEFAULT_PARAMS: Params = {
   maSalienceTheta: 0.3,
   maDigestQualityMin: 0.3,
 
+  mailWindowStartHour: 7,
+  mailWindowEndHour: 23,
+  mailMaxAttempts: 5,
+
   dInjectMargin: 0.3,
 
   crisisResources: [],
@@ -222,6 +231,9 @@ const NUMERIC_PARAM_BOUNDS: Record<string, { min: number; max: number }> = {
   tauSlowBandMaxMs: { min: 0, max: 31_536_000_000 },
   maSalienceTheta: { min: 0, max: 1 },
   maDigestQualityMin: { min: 0, max: 1 },
+  mailWindowStartHour: { min: 0, max: 24 },
+  mailWindowEndHour: { min: 0, max: 24 },
+  mailMaxAttempts: { min: 1, max: 100 },
   dInjectMargin: { min: 0, max: 0.99 },
   B_daily: { min: 0, max: 1e12 }, // null = 撤销标定，另行放行
   M_min: { min: 0, max: 1e6 }, // null = 撤销标定，另行放行

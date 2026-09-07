@@ -85,6 +85,46 @@ export interface MailboxRow {
   addressee: string;
 }
 
+// ── 信件通道（Huginn 投递面，mail-信件通道-v0）──
+
+/** 信件投递状态（outbox 状态机；Huginn 门 2：进程死在中间 = phase 即断点）。 */
+export type LetterPhase = "composed" | "held" | "sent" | "bounced" | "replied" | "held_manual";
+
+export interface LetterRow {
+  id: number;
+  /** 信件句柄（幂等主键，全局唯一——Huginn 门 1：同信不重投）。 */
+  letterId: string;
+  /** 回信线程句柄：她回信的 In-Reply-To 对准我们的 message_id。 */
+  threadId: string | null;
+  /** 收件地址（她给引擎的投递面；只存引擎侧所需，原文属部署面）。 */
+  toAddr: string;
+  subject: string;
+  /** 信体（text/plain only——Huginn 门 4：追踪像素物理缺席）。 */
+  body: string;
+  phase: LetterPhase;
+  /** Date: 头 = 写信时刻（诚实时间之一：她口述「凌晨三点的信就是凌晨三点」）。 */
+  composedTs: number;
+  /** 真实投递时刻（引擎侧记账；引擎不知道她的收到时刻——那是世界的事）。 */
+  sentTs: number | null;
+  bounceReason: string | null;
+  /** 我们发出的 Message-ID（她回信的 In-Reply-To 匹配键）。 */
+  messageId: string | null;
+  /** 她回信的 Message-ID（闭环登记）。 */
+  replyMessageId: string | null;
+  attemptCount: number;
+  updatedAt: number;
+}
+
+export interface NewLetterRow {
+  letterId: string;
+  threadId?: string | null;
+  toAddr: string;
+  subject: string;
+  body: string;
+  composedTs: number;
+  messageId: string;
+}
+
 export interface EventStore {
   readonly kind: "memory" | "postgres";
 
@@ -123,6 +163,15 @@ export interface EventStore {
   // ── 信箱（投递即完成；无已读回执——收件人不读裁决）──
   deliver(product: Omit<MailboxRow, "id">): Promise<void>;
   mailbox(sinceTs?: number, limit?: number): Promise<MailboxRow[]>;
+
+  // ── 信件投递 outbox（Huginn 六道门：幂等 + 状态机 + 确知事件）──
+  insertLetter(l: NewLetterRow): Promise<LetterRow | null>; // 已存在（同 letterId）→ null（幂等）
+  getLetter(letterId: string): Promise<LetterRow | null>;
+  getLetterByMessageId(messageId: string): Promise<LetterRow | null>;
+  listLettersByPhase(phases: LetterPhase[]): Promise<LetterRow[]>;
+  /** 状态机单步推进（幂等：同 letterId+expectedPhase 才动；并发/重放安全）。
+   *  patch.atTs = 显式推进时刻（测试确定性；缺省 = 存储层时钟）。 */
+  transitionLetter(letterId: string, from: LetterPhase, to: LetterPhase, patch?: Partial<Pick<LetterRow, "sentTs" | "bounceReason" | "replyMessageId" | "attemptCount" | "threadId">> & { atTs?: number }): Promise<LetterRow | null>;
 
   // ── 评测台与金丝雀 ──
   appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void>;

@@ -14,6 +14,8 @@ export * from "./core/tick.js";
 export * from "./core/engine.js";
 export * from "./core/contingency.js";
 export * from "./core/contingency-log.js";
+export * from "./mail/protocol.js";
+export * from "./mail/letters.js";
 export * from "./storage/types.js";
 export { MemoryStore } from "./storage/memory.js";
 export { PostgresStore } from "./storage/postgres.js";

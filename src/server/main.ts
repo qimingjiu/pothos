@@ -15,6 +15,7 @@ import { MemoryStore } from "../storage/memory.js";
 import { PostgresStore } from "../storage/postgres.js";
 import { PothosService } from "../service.js";
 import { createApp } from "./app.js";
+import { MailWorker, mailConfigFromEnv } from "../mail/letters.js";
 
 async function pickStore() {
   const pg = PostgresStore.fromEnv();
@@ -75,6 +76,25 @@ async function main(): Promise<void> {
   setInterval(() => {
     svc.contingencyBypass().catch((e) => console.error("[POTHOS] contingency bypass error", e));
   }, 86_400_000);
+
+  // 信件投递 worker（Huginn 投递面，mail-信件通道-v0）：部署凭据齐备才启用——
+  // 未配置 = 信件通道诚实缺席，不是假装在投。poll = quiet_hours 管寄 + 退避重试；
+  // pollReplies = IMAP 回信闭环（In-Reply-To → Message-ID → user_msg 入流）。
+  const mailCfg = mailConfigFromEnv();
+  if (mailCfg) {
+    const worker = new MailWorker({
+      store,
+      cfg: mailCfg,
+      params: () => svc.params,
+      ingest: async (ev) => {
+        await svc.ingest(ev);
+      },
+      clock: () => Date.now(),
+    });
+    setInterval(() => worker.poll().catch((e) => console.error("[POTHOS] mail poll error", e)), 60_000);
+    setInterval(() => worker.pollReplies().catch((e) => console.error("[POTHOS] mail replies error", e)), 5 * 60_000);
+    console.log("[POTHOS] 信件投递 worker 已启用（quiet_hours 管寄不管写）");
+  }
 
   let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
