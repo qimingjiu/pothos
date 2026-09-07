@@ -9,7 +9,7 @@
  * 数据目录固定 exams/data/（不入库）；结果落 exams/results/。
  * 铁律在案：分数只校准零件（锚点/投影/选型/判官禁用面），永不回流引擎。
  */
-import { ArkCliTransport } from "../classifier.js";
+import { ArkCliTransport, ArkHttpTransport, type ModelTransport } from "../classifier.js";
 import { DeclaredClassifier } from "../classifier.js";
 import { runSemevalEIReg } from "./semeval.js";
 import { runEQBench } from "./eqbench.js";
@@ -31,8 +31,15 @@ async function main(): Promise<void> {
   const model = arg("model", "doubao-seed-evolving");
   const promptV = arg("promptV", "v1") === "v2" ? "v2" : "v1";
   const concurrency = Number(arg("concurrency", "4"));
-  const transport = new ArkCliTransport({ model, timeoutMs: 180_000 });
-  console.log(`考场=${exam} 模型=${model} promptV=${promptV} 并发=${concurrency}`);
+  const transportKind = arg("transport", "arkcli");
+  console.log(`考场=${exam} 模型=${model} promptV=${promptV} 并发=${concurrency} 传输=${transportKind}`);
+
+  // 传输分工（契约 §5）：agent plan 面（doubao-seed 家族）走 arkcli 子进程；
+  // v3 OpenAI 兼容面（deepseek/glm/qwen/kimi 等第三方家族）走 HTTP（鉴权托管）。
+  const transport: ModelTransport =
+    transportKind === "http"
+      ? new ArkHttpTransport({ model, timeoutMs: 180_000 })
+      : new ArkCliTransport({ model, timeoutMs: 180_000 });
 
   if (exam === "semeval") {
     const n = Number(arg("n", "40"));
@@ -55,7 +62,7 @@ async function main(): Promise<void> {
     const { file } = await runAnchorF1(transport, { concurrency });
     console.log(`结果：${file}`);
   } else {
-    console.error("用法：run.ts <semeval|eqbench|emobench|f1> [--model M] [--n N] [--emotion e1,e2] [--offset N] [--concurrency C]");
+    console.error("用法：run.ts <semeval|eqbench|emobench|f1> [--model M] [--transport arkcli|http] [--n N] [--emotion e1,e2] [--offset N] [--concurrency C]");
     process.exitCode = 1;
   }
 }

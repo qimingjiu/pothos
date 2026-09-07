@@ -86,7 +86,7 @@ declared 事件：`{ kind: "declared", ts, payload, source?, idempotencyKey }`�
 
 ## 5. 生产者纪律
 
-- **A2 分类器**（网关侧）：读 resident_msg 表达 → declare 模式产出契约载荷 → declared 事件入库。幂等键建议 `a2-<textHash 前 12>-<promptV>-<ts>`。传输抽象 `ModelTransport`：`ArkCliTransport`（arkcli 子进程，鉴权托管，本机/考场）、`ScriptedTransport`（测试 mock，**挂牌假件——它知道的答案是脚本塞的**）；网关部署可另实现 OpenAI 兼容 HTTP 传输。
+- **A2 分类器**（网关侧）：读 resident_msg 表达 → declare 模式产出契约载荷 → declared 事件入库。幂等键建议 `a2-<textHash 前 12>-<promptV>-<ts>`。传输抽象 `ModelTransport`：`ArkCliTransport`（arkcli 子进程，agent plan 面/Responses API，鉴权托管，本机/考场，doubao-seed 家族专用）、`ArkHttpTransport`（方舟 v3 OpenAI 兼容 HTTP 面，**2026-09-07 还账落地**——鉴权托管 platform 型 key，baseUrl 可配：deepseek/glm/qwen/kimi 等第三方家族通道，模型须先在方舟控制台开通）、`ScriptedTransport`（测试 mock，**挂牌假件——它知道的答案是脚本塞的**）。
 - **住户自报**（MCP `declare` 工具）：inputSchema 轴位 enum 化（契约即工具面），`native` 可选，载荷打标 `producer: "resident-self"`。
 - **declared 读数不动动力学**（`computeValuation` 对 declared 恒空），对齐只在 bench/gap 层——契约落地不改变这条。
 

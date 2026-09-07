@@ -13,6 +13,9 @@
  */
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   DECLARED_CONTRACT_VERSION,
   ENGINE_AXIS_GLOSS,
@@ -108,6 +111,115 @@ export class ScriptedTransport implements ModelTransport {
 
   async complete(prompt: string): Promise<string> {
     return this.script(prompt);
+  }
+}
+
+/** 方舟 v3 OpenAI 兼容面默认端点（北京区）。 */
+export const ARK_HTTP_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+
+/**
+ * 从 arkcli 配置文本解析 platform 型 profile 的 api_key（鉴权托管，仓库不硬编码密钥）。
+ * 结构：profiles: 下两空格缩进的 profile 块，块内四空格子键 api_key / type；
+ * 取 type: platform 那块的 api_key（agent plan 型 key 只通 Responses 面）。
+ * 找不到返回 null（调用方抛可读错误）。行级状态机解析——不引入 YAML 依赖。
+ */
+export function parsePlatformKeyFromArkcliConfig(text: string): string | null {
+  const lines = text.split(/\r?\n/);
+  let current: { apiKey: string | null; type: string | null } | null = null;
+  let found: string | null = null;
+  const flush = (): void => {
+    if (!found && current && current.type === "platform" && current.apiKey) found = current.apiKey;
+  };
+  for (const line of lines) {
+    const prof = line.match(/^ {2}(\S+):\s*$/); // profile 块开始（两空格缩进键）
+    if (prof) {
+      flush();
+      current = { apiKey: null, type: null };
+      continue;
+    }
+    if (!current) continue;
+    const m = line.match(/^ {4}(api_key|type):\s*(\S+)$/); // profile 内的四空格子键
+    if (m) {
+      if (m[1] === "api_key") current.apiKey = m[2]!;
+      else if (m[1] === "type") current.type = m[2]!;
+    }
+  }
+  flush();
+  return found;
+}
+
+function resolveArkPlatformKey(): string {
+  const env = process.env["POTHOS_ARK_API_KEY"];
+  if (env) return env;
+  const configPath = process.env["ARKCLI_CONFIG"] ?? join(homedir(), ".arkcli", "config.yaml");
+  let apiKey: string | null = null;
+  try {
+    apiKey = parsePlatformKeyFromArkcliConfig(readFileSync(configPath, "utf8"));
+  } catch {
+    /* fallthrough：统一抛可读错误 */
+  }
+  if (!apiKey) {
+    throw new Error(
+      `HTTP 传输找不到凭据：设 POTHOS_ARK_API_KEY，或确保 arkcli 配置（${configPath}）里有 platform 型 profile 的 api_key` +
+      `（agent plan 型 key 只通 Responses 面，v3 OpenAI 兼容面需要 platform 型凭据）。`,
+    );
+  }
+  return apiKey;
+}
+
+/**
+ * 方舟 v3 OpenAI 兼容 HTTP 传输（挂账件还账：契约 §5 预留的传输面）。
+ *
+ * 分工：agent plan 面（doubao-seed 家族，Responses API）走 `ArkCliTransport`；
+ * v3 经典面的第三方家族（deepseek / glm / qwen / kimi……）走此传输——
+ * 两面鉴权凭据不同（agent-plan 型 key 不通 v3），按 profile 类型取。
+ * baseUrl 可配：Moonshot/OpenAI 兼容网关换 POTHOS_ARK_HTTP_BASE_URL 即接。
+ *
+ * 鉴权托管：POTHOS_ARK_API_KEY 显式 > arkcli 配置 platform profile（~/.arkcli/config.yaml）。
+ * 仓库不硬编码、不打印密钥；错误信息只带 error.code（不带 key）。
+ */
+export class ArkHttpTransport implements ModelTransport {
+  readonly fingerprint: DeclaredModelFingerprint;
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly timeoutMs: number;
+  private readonly fetchFn: typeof fetch;
+
+  constructor(
+    opts: { model: string; baseUrl?: string; apiKey?: string; promptV?: string; timeoutMs?: number; fetchFn?: typeof fetch },
+  ) {
+    this.baseUrl = (opts.baseUrl ?? process.env["POTHOS_ARK_HTTP_BASE_URL"] ?? ARK_HTTP_BASE_URL).replace(/\/$/, "");
+    const key = opts.apiKey ?? process.env["POTHOS_ARK_API_KEY"] ?? resolveArkPlatformKey();
+    this.apiKey = key;
+    this.timeoutMs = opts.timeoutMs ?? 120_000;
+    this.fetchFn = opts.fetchFn ?? fetch;
+    this.fingerprint = { name: opts.model, promptV: opts.promptV ?? DECLARE_PROMPT_V1 };
+  }
+
+  async complete(prompt: string, req?: { temperature?: number; maxOutputTokens?: number }): Promise<string> {
+    const res = await this.fetchFn(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify({
+        model: this.fingerprint.name,
+        messages: [{ role: "user", content: prompt }],
+        temperature: req?.temperature ?? 0,
+        ...(req?.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),
+      }),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    } as RequestInit);
+    if (!res.ok) {
+      let code = `HTTP ${res.status}`;
+      try {
+        const j = (await res.json()) as { error?: { code?: string; message?: string } };
+        if (j.error?.code) code = `${j.error.code}（${(j.error.message ?? "").slice(0, 120)}）`;
+      } catch { /* 非 JSON 错误体：保留状态码 */ }
+      throw new Error(`ark v3 调用失败：${code}`);
+    }
+    const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const content = j.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error(`ark v3 输出缺 choices[0].message.content`);
+    return content;
   }
 }
 
