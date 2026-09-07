@@ -15,7 +15,13 @@ import {
   rfc5322Date,
   type SocketFactory,
 } from "../../src/mail/protocol.js";
-import { MailWorker, mailConfigFromEnv } from "../../src/mail/letters.js";
+import {
+  MailWorker,
+  mailConfigFromEnv,
+  plusAlias,
+  assertSendPolicy,
+  type MailTransportConfig,
+} from "../../src/mail/letters.js";
 import { DEFAULT_PARAMS, type Params } from "../../src/core/params.js";
 import { MemoryStore } from "../../src/storage/memory.js";
 import { ManualClock } from "../../src/clock.js";
@@ -23,6 +29,7 @@ import { PothosService } from "../../src/service.js";
 import { initialState, stateHash } from "../../src/core/state.js";
 import { fold } from "../../src/core/engine.js";
 import type { StoredEvent } from "../../src/core/events.js";
+import type { LetterPhase, LetterRow } from "../../src/storage/types.js";
 
 const T0 = 1_700_000_000_000;
 
@@ -105,11 +112,90 @@ describe("mailConfigFromEnv（凭据诚实缺席）", () => {
       POTHOS_SMTP_HOST: "s", POTHOS_SMTP_USER: "u", POTHOS_SMTP_PASS: "p", POTHOS_SMTP_FROM: "f",
       POTHOS_IMAP_HOST: "i", POTHOS_IMAP_USER: "iu", POTHOS_IMAP_PASS: "ip", POTHOS_MAIL_TO: "her@example.com",
     };
-    expect(mailConfigFromEnv(full)).not.toBeNull();
+    expect(mailConfigFromEnv(full)!.plusTag).toBe("pothos"); // plus 门牌默认
+    expect(mailConfigFromEnv({ ...full, POTHOS_MAIL_PLUS_TAG: "her-door" })!.plusTag).toBe("her-door");
     const broken = { ...full };
     delete broken["POTHOS_IMAP_PASS"];
     expect(mailConfigFromEnv(broken)).toBeNull();
     expect(mailConfigFromEnv({})).toBeNull();
+  });
+});
+
+// ── 三把锁（她 2026-09-07 定案：MAIL_TO 管发，FROM 白名单 + plus 门牌管收，Message-ID 管线）──
+
+describe("三把锁", () => {
+  it("plus 门牌派生：user@domain → user+pothos@domain", () => {
+    expect(plusAlias("yaoy0851@gmail.com", "pothos")).toBe("yaoy0851+pothos@gmail.com");
+    expect(plusAlias("a@b.co", "her-door")).toBe("a+her-door@b.co");
+  });
+
+  it("发信 Final Policy Check：envelope ≠ MAIL_TO 或 From 非门牌 → 拒（构造层不生成、投递层不放过）", () => {
+    const cfg: MailTransportConfig = {
+      smtp: { host: "s", user: "u", pass: "p", from: "yaoy0851@gmail.com" },
+      imap: { host: "i", user: "iu", pass: "ip" },
+      toAddr: "her@example.com",
+      plusTag: "pothos",
+    };
+    const raw = buildRfc2822({
+      from: plusAlias("yaoy0851@gmail.com", "pothos"),
+      to: "her@example.com", subject: "s", body: "b", composedTs: 0, messageId: "m",
+    });
+    expect(() => assertSendPolicy({ toAddr: "her@example.com" }, raw, cfg)).not.toThrow();
+    expect(() => assertSendPolicy({ toAddr: "someone-else@example.com" }, raw, cfg)).toThrow(/send-policy/);
+    const rawWrongFrom = buildRfc2822({ from: "yaoy0851@gmail.com", to: "her@example.com", subject: "s", body: "b", composedTs: 0, messageId: "m" });
+    expect(() => assertSendPolicy({ toAddr: "her@example.com" }, rawWrongFrom, cfg)).toThrow(/plus/);
+  });
+
+  it("投递层锁：被篡改收件人的信 → held_manual（不重试、不投出、不假装发出）", async () => {
+    class TamperedStore extends MemoryStore {
+      override async listLettersByPhase(phases: LetterPhase[]): Promise<LetterRow[]> {
+        const rows = await super.listLettersByPhase(phases);
+        return rows.map((r) => ({ ...r, toAddr: "someone-else@example.com" }));
+      }
+    }
+    const tampered = new TamperedStore();
+    const ts = new Date(); ts.setHours(10, 0, 0, 0);
+    const clock = new ManualClock(ts.getTime());
+    const params: Params = { ...DEFAULT_PARAMS, mailWindowStartHour: 7, mailWindowEndHour: 23, mailMaxAttempts: 3 };
+    let sockets = 0;
+    const svc = new PothosService(tampered, clock);
+    const worker = new MailWorker({
+      store: tampered,
+      cfg: { smtp: { host: "s", user: "u", pass: "p", from: "yaoy0851@gmail.com" }, imap: { host: "i", user: "iu", pass: "ip" }, toAddr: "her@example.com", plusTag: "pothos" },
+      params: () => params,
+      ingest: async (ev) => { await svc.ingest(ev); },
+      clock: () => clock.now(),
+      socketFn: (async () => { sockets += 1; return new FakeSock(makeSmtpScript("250 ok"), "220 mail.test ESMTP") as unknown as Duplex; }) as unknown as SocketFactory,
+    });
+    await worker.compose({ subject: "s", body: "b", composedTs: ts.getTime() });
+    await worker.poll();
+    const l = await tampered.listLettersByPhase(["held_manual"]);
+    expect(l).toHaveLength(1);
+    expect(l[0]!.bounceReason).toContain("send-policy");
+    expect(sockets).toBe(0); // 违规信连 SMTP 会话都没开——构造层不生成、投递层不放过
+  });
+
+  it("收信锁字面化：SEARCH 带 FROM 她 + TO plus 门牌 双条件（白名单外的信从来不拿）", async () => {
+    const ts = new Date(); ts.setHours(10, 0, 0, 0);
+    const clock = new ManualClock(ts.getTime());
+    const store = new MemoryStore();
+    const sockets: FakeSock[] = [];
+    const worker = new MailWorker({
+      store,
+      cfg: { smtp: { host: "s", user: "u", pass: "p", from: "yaoy0851@gmail.com" }, imap: { host: "imap.test", user: "iu", pass: "ip" }, toAddr: "her@example.com", plusTag: "pothos" },
+      params: () => ({ ...DEFAULT_PARAMS, mailWindowStartHour: 7, mailWindowEndHour: 23, mailMaxAttempts: 3 }),
+      ingest: async () => {},
+      clock: () => clock.now(),
+      socketFn: (async () => {
+        const fd = new FakeSock(imapScript({ inReplyTo: null, messageId: "m-1", text: "x" }), "* OK ready");
+        sockets.push(fd);
+        return fd as unknown as Duplex;
+      }) as unknown as SocketFactory,
+    });
+    await worker.pollReplies();
+    const searchLine = sockets[0]!.clientLines.find((l) => l.includes("SEARCH"));
+    expect(searchLine).toContain('FROM "her@example.com"');
+    expect(searchLine).toContain('TO "yaoy0851+pothos@gmail.com"');
   });
 });
 
@@ -134,6 +220,7 @@ function makeWorker(opts: { hour: number; smtpReply: (line: string) => string | 
       smtp: { host: "smtp.test", user: "u", pass: "p", from: "resident@pothos.local" },
       imap: { host: "imap.test", user: "iu", pass: "ip" },
       toAddr: "her@example.com",
+      plusTag: "pothos",
     },
     params: () => params,
     ingest: async (ev) => {
@@ -289,6 +376,7 @@ describe("回信闭环（IMAP → In-Reply-To → replied + user_msg）", () => 
         smtp: { host: "smtp.test", user: "u", pass: "p", from: "resident@pothos.local" },
         imap: { host: "imap.test", user: "iu", pass: "ip" },
         toAddr: "her@example.com",
+        plusTag: "pothos",
       },
       params: () => params,
       ingest: async (ev) => {

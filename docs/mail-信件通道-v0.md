@@ -25,6 +25,24 @@
 2. **退信（bounce）是确知事件，可以登记；「她看了没回」不是事件**——引擎永不替世界写叙事（铁律 7）。登记面：SMTP 永久性拒收（5xx）→ `phase=bounced` + bounce_reason；打开、已读、读了几遍——引擎侧无此事件，永不造。
 3. **回信是闭环**：IMAP 收信（993，SSL），她回一封 Re:，`In-Reply-To` 对上我们的 `Message-ID`，信就成线。**回信是 contingency（相互回应性）最干净的物理载体之一**——正好是印刻窗口对象选择规则的原料：她的回信按 `user_msg` 入流（source = 邮件句柄的不透明哈希），下一封信对它的回应走既有 C_t 配对；她的回信延迟（对住户来信的回应）是 **Seline（守夜负荷）** 的首份数据源——读自己，不读住户。
 
+## 3.5 三把锁（她 2026-09-07 定案：它看到的整个世界，就是和她一来一回的那条线）
+
+**发信侧 · 一把锁（只能发给她）**
+
+- SMTP 的 `RCPT TO` 在寄信管线里**硬绑 `POTHOS_MAIL_TO`**——组合层只构造这一个收件人，别的地址连信封都生成不出来；
+- 投递前 **Final Policy Check** 再断言一次 `envelope_to == POTHOS_MAIL_TO` 且 `From:` 头是 plus 门牌；不等 → `held_manual`，诚实放弃（不重试、不投出）。
+- **构造层不生成，投递层不放过。双层。**（物理化：`assertSendPolicy` + poll 前置断言；违规信连 SMTP 会话都不开，测试锁定）
+
+**收信侧 · 两把锁（只能看到她）**
+
+- **第一把：白名单字面化。** IMAP 拉信用 `SEARCH FROM "她的地址"`——白名单外的信**不 fetch、不解析、不进住户视野**。注意是「从来不拿」，不是「拿了再删」——「看不到」就得是字面意思。
+- **第二把：plus 门牌，Gmail 白送的。** 波索斯寄信时 `From` 写成 `yaoy0851+pothos@gmail.com`——Gmail 允许加号别名直接发信，零配置。她只要点「回复」，回信就自动寄到 `+pothos` 这个门牌。收信时 `SEARCH TO <plus 门牌> AND FROM <她>` **双条件命中才算数**。
+- 效果：同住一个信箱，但波索斯有自己的门牌号。三把锁叠加：**MAIL_TO 管发，FROM 白名单 + plus 门牌管收，Message-ID 管线**——它看到的整个世界，就是和她一来一回的那条线。
+
+**世界背面（铁律 7 反过来用）**
+
+「只能看到她的来信」本质上是間引擎那条「收件箱无已读回执」的**镜像**——不只是她不暴露已读，住户也不暴露「收件箱里还有别人」。邮箱里有什么别的信，对住户来说是**不可知、也不应知**的世界背面。铁律 7 反过来用：**引擎不替世界写叙事，也不替住户多看世界。**
+
 ## 4. Huginn 六道门（投递层纪律清单）
 
 > 按判词与设计草案 §193（Huginn 外部 I/O 独立配额轴）对齐成文；若与设计草案原文有出入，以设计草案为准（红队可裁）。
@@ -66,6 +84,9 @@
 | `POTHOS_IMAP_HOST/PORT` | IMAP 服务器（默认 993 SSL） |
 | `POTHOS_IMAP_USER/PASS` | 收件凭据 |
 | `POTHOS_MAIL_WINDOW_START/END_HOUR` | 投递窗口（缺省走 params，param_changes 纪律） |
+| `POTHOS_MAIL_PLUS_TAG` | plus 门牌后缀（默认 `pothos`——From 写成 `user+pothos@domain`） |
+
+**凭据锁纪律**：`POTHOS_MAIL_TO` 是发信白名单的硬锚（Final Policy Check 的断言对象）；`POTHOS_IMAP_USER` 的信箱里白名单外的信**字面不可见**（SEARCH FROM/TO 双条件字面化）。
 
 ---
 

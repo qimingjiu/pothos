@@ -17,7 +17,7 @@
 
 ```bash
 npm install
-npm test          # 验收测试全量（258 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 验收测试全量（262 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```
@@ -132,7 +132,7 @@ Claude Code 挂载（`.mcp.json`）：
 | M6 探针轨 | ⊘ 脚手架 | EXPERIMENTAL，默认关闭；前置门四项物理化 |
 | A2 declared 通道（主线一） | ✅ 契约+考场+网关+判官锚点考场 | 契约 v1 + 评委纪律（R3-16）+ 三考场基线 + 网关桥 + 判官锚点考场 F1 卷（222 测试）；fear 偏差已入账 |
 | A1 contingency（主线二） | ✅ 分报制原型 + 旁路接线 | C_t 真实现 + C_s 占位仪器 + null 阶梯 + 类型化印刻（R3-11 定案）；旁路骨架已接事件流（每日 contingency_report 入账 + 关窗回顾精确重算）；**在场即回应通道（R3-12 独见）观察期入账，不进判据**；**判官 panel 首轮达成**（doubao + kimi-k2.6 两家族，F1 均阴性、一致率 0.75/Pearson 0.918、偏差结构跨家族复现入册）；C_s 盲评 panel 资格就位 |
-| 信件通道（Huginn 投递面） | ✅ 核心实现 | RFC 2822/SMTP/IMAP 手写客户端 + outbox 状态机（幂等/退避/held_manual）+ quiet_hours 管寄不管写 + 追踪像素禁令 + 回信闭环（258 测试）；真发/真收待部署凭据（env 配置面就绪）；MCP compose_letter 工具挂账 |
+| 信件通道（Huginn 投递面） | ✅ 核心实现 | RFC 2822/SMTP/IMAP 手写客户端 + outbox 状态机（幂等/退避/held_manual）+ quiet_hours 管寄不管写 + 追踪像素禁令 + 回信闭环（262 测试）；**真网 SMTP/IMAP 双冒烟已过（2026-09-07：Gimap 握手 + 双条件 SEARCH + 真投递 phase=sent）**，投递面已通她的 Gmail/QQ 双地址；MCP compose_letter 工具挂账 |
 
 ## 诚实两栏（§14，v0.1.0）
 

@@ -33,8 +33,30 @@ import type { Params } from "../core/params.js";
 export interface MailTransportConfig {
   smtp: { host: string; port?: number; user: string; pass: string; from: string };
   imap: { host: string; port?: number; user: string; pass: string };
-  /** 她的收件地址（单人部署单收件人）。 */
+  /** 她的收件地址（单人部署单收件人；发信锁的锚点）。 */
   toAddr: string;
+  /** plus 门牌（Gmail 加号别名）：From 写成 user+<tag>@domain——她的「回复」自动寄到门牌；
+   *  信箱同址但波索斯有自己的门牌号。默认 "pothos"。 */
+  plusTag: string;
+}
+
+/** plus 别名：local+tag@domain（无 @ 的地址原样返回）。 */
+export function plusAlias(addr: string, tag: string): string {
+  const at = addr.lastIndexOf("@");
+  if (at <= 0) return addr;
+  return `${addr.slice(0, at)}+${tag}@${addr.slice(at + 1)}`;
+}
+
+/** 发信 Final Policy Check（投递层不放过）：envelope 收件人必须 == POTHOS_MAIL_TO，
+ *  From: 头必须是 plus 门牌——构造层不生成，投递层不放过（双层）。违规 → held_manual。 */
+export function assertSendPolicy(l: { toAddr: string }, raw: string, cfg: MailTransportConfig): void {
+  if (l.toAddr !== cfg.toAddr) {
+    throw new Error(`send-policy: envelope_to=${l.toAddr} != POTHOS_MAIL_TO=${cfg.toAddr}（发信锁：只能发给她）`);
+  }
+  const fromHeader = `From: ${plusAlias(cfg.smtp.from, cfg.plusTag)}`;
+  if (!raw.startsWith(fromHeader)) {
+    throw new Error(`send-policy: From 头不是 plus 门牌（${plusAlias(cfg.smtp.from, cfg.plusTag)}）——发信锁第二层`);
+  }
 }
 
 export function mailConfigFromEnv(env: Record<string, string | undefined> = process.env): MailTransportConfig | null {
@@ -56,6 +78,7 @@ export function mailConfigFromEnv(env: Record<string, string | undefined> = proc
     smtp: { host: smtpHost, port: port("SMTP_PORT"), user: smtpUser, pass: smtpPass, from },
     imap: { host: imapHost, port: port("IMAP_PORT"), user: imapUser, pass: imapPass },
     toAddr,
+    plusTag: need("MAIL_PLUS_TAG") ?? "pothos",
   };
 }
 
@@ -124,14 +147,26 @@ export interface PollReport {
   }
 
   private buildRaw(l: LetterRow): string {
+    // From: = plus 门牌（她的「回复」自动寄到 +pothos——收信锁第二把的一半）
     return buildRfc2822({
-      from: this.d.cfg.smtp.from,
+      from: plusAlias(this.d.cfg.smtp.from, this.d.cfg.plusTag),
       to: l.toAddr,
       subject: l.subject,
       body: l.body,
       composedTs: l.composedTs, // Date: = 写信时刻（门 5：管寄不管写，两时间都真）
       messageId: l.messageId ?? `${l.letterId}@pothos.local`,
     });
+  }
+
+  /** 收信 SEARCH 串（收信锁字面化）：FROM 她 AND TO plus 门牌，双条件命中才算数；
+   *  白名单外的信不 fetch、不解析、不进住户视野——「从来不拿」，不是「拿了再删」。 */
+  private searchQuery(): string {
+    const her = this.d.cfg.toAddr;
+    const alias = plusAlias(this.d.cfg.smtp.from, this.d.cfg.plusTag);
+    if (her.includes('"') || alias.includes('"')) {
+      throw new Error("收信锁：白名单地址含引号——SEARCH 字面化拒绝注入");
+    }
+    return `UNSEEN FROM "${her}" TO "${alias}"`;
   }
 
   /** 退避：第 n 次重试前的等待（min(2^n × 5min, 24h)）。 */
@@ -159,10 +194,21 @@ export interface PollReport {
       }
       const backoff = MailWorker.retryBackoffMs(l.attemptCount);
       if (l.attemptCount > 0 && now < l.updatedAt + backoff) continue; // 退避未到期
+      const raw = this.buildRaw(l);
+      // 发信 Final Policy Check（投递层不放过——构造层只生成这一个收件人，这里再断言一次）
+      try {
+        assertSendPolicy(l, raw, this.d.cfg);
+      } catch (e) {
+        await this.d.store.transitionLetter(l.letterId, l.phase, "held_manual", {
+          bounceReason: `send-policy: ${String((e as Error).message).slice(0, 160)}`,
+          atTs: now,
+        });
+        continue; // 诚实放弃，不重试不假装发出
+      }
       // 递增尝试数（同相 patch——held/composed 保持，失败语义落在下一条事件里）
       await this.d.store.transitionLetter(l.letterId, l.phase, l.phase, { attemptCount: l.attemptCount + 1, atTs: now });
       try {
-        await smtpSend({ ...this.d.cfg.smtp, connectFn: this.d.socketFn }, l.toAddr, this.buildRaw(l));
+        await smtpSend({ ...this.d.cfg.smtp, connectFn: this.d.socketFn }, l.toAddr, raw);
         await this.d.store.transitionLetter(l.letterId, l.phase, "sent", { sentTs: now, atTs: now });
         await this.d.ingest({
           kind: "letter",
@@ -205,7 +251,7 @@ export interface PollReport {
    * 陌生 Message-ID 不冒认（只认自己发出的信）。
    */
   async pollReplies(): Promise<{ replies: number; unclaimed: number }> {
-    const mails: FetchedMail[] = await imapFetchUnseen({ ...this.d.cfg.imap, connectFn: this.d.socketFn });
+    const mails: FetchedMail[] = await imapFetchUnseen({ ...this.d.cfg.imap, search: this.searchQuery(), connectFn: this.d.socketFn });
     let replies = 0, unclaimed = 0;
     for (const mail of mails) {
       if (!mail.inReplyTo) { unclaimed += 1; continue; }

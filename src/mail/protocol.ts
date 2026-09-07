@@ -240,6 +240,9 @@ interface ImapSession {
   port?: number; // 993 SSL（缺省）
   user: string;
   pass: string;
+  /** 收信白名单的 SEARCH 串（收信锁字面化：白名单外的信「从来不拿」，不是「拿了再删」）。
+   *  例：`UNSEEN FROM "her@example.com" TO "me+pothos@gmail.com"`。缺省 UNSEEN。 */
+  search?: string;
   connectFn?: SocketFactory;
 }
 
@@ -302,7 +305,7 @@ export async function imapFetchUnseen(opts: ImapSession): Promise<FetchedMail[]>
     if (!greet.startsWith("* ")) throw new Error(`IMAP greeting 异常：${greet.slice(0, 80)}`);
     await cmd(`LOGIN ${opts.user} ${opts.pass}`);
     await cmd(`SELECT INBOX`);
-    const searchLines = await cmd(`SEARCH UNSEEN`);
+    const searchLines = await cmd(`SEARCH ${opts.search ?? "UNSEEN"}`);
     const searchLine = searchLines.find((l) => l.startsWith("* SEARCH ")) ?? "* SEARCH";
     const seqs = searchLine.slice("* SEARCH".length).trim().split(/\s+/).filter(Boolean);
     for (const seq of seqs) {
