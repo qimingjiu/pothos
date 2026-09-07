@@ -44,10 +44,10 @@ export const ALLOWED_ROUTES: Array<{ method: string; path: string }> = [
 /**
  * 外部事件面白名单：/events 只接受外部世界的事件。
  * param_change（纪律流程在 /admin/params）、crisis（引擎字面登记）、
- * alert_ack / bench / canary / ma_product（引擎内部路径）一律拒绝——
+ * alert_ack / bench / canary / ma_product / presence（引擎内部路径）一律拒绝——
  * 否则 /events 就是绕过参数校验与冷却期锁的后门。
  */
-const EXTERNAL_EVENT_KINDS = ["user_msg", "resident_msg", "world", "declared"];
+export const EXTERNAL_EVENT_KINDS = ["user_msg", "resident_msg", "world", "declared"];
 
 /** 保留标签由引擎判定：crisis 靠词表扫描，instrument 由引擎内部路径（R3-8 本体二分），其余来自引擎内部路径。客户端注入一律剥除。 */
 export const RESERVED_TAGS = ["crisis", "alert_triggered", "self_generated", "system_text", "instrument"];

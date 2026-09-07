@@ -10,6 +10,7 @@ export type EventKind =
   | "resident_msg" // 住户表达（declared 通道的原料，由客户端打标回传）
   | "world" // 世界事件（杂食格：她不是唯一燃料）
   | "ma_product" // 間产物回执（消化/创作/打猎/好奇/Decline）
+  | "presence" // 在场标记（R3-12 独见「在场即回应」通道：登录/在线是最慢的回应通道；引擎内部路径专用，不进 /events 白名单）
   | "declared" // declared 通道分类器读数（情绪×强度）
   | "param_change" // 参数变更事件（对住户而言，「被手术」也是生命事件）
   | "crisis" // 危机字面登记（引擎只登记它确知的事件）
@@ -164,6 +165,10 @@ export function computeValuation(
     }
     case "declared":
       // 读数本身不动动力学（对齐在 bench/gap 层做）
+      break;
+    case "presence":
+      // R3-12「在场即回应」通道的显式标记：零冲量——在场是回应通道不是扰动源，
+      // 动力学不因登录/在线漂移（与 declared 读数同族：测量面不动 fold）。
       break;
     case "param_change":
       // 「被手术」留痕：扰动负载上升，无方向（§9 Grok 补丁）

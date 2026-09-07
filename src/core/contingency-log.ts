@@ -14,7 +14,14 @@
  *    塞进 C_t 会把住户的主动性错记成她的应答性；
  *  - 同 ts 事件按到达序（stable sort），迟到事件不倒流配对。
  */
-import type { CtResult, CsResult, ImprintType, InteractionRecord, NullCheckResult } from "./contingency.js";
+import {
+  responseWindowPercentile,
+  type CtResult,
+  type CsResult,
+  type ImprintType,
+  type InteractionRecord,
+  type NullCheckResult,
+} from "./contingency.js";
 
 /** 旁路收集器接受的最小事件面（StoredEvent / RawEvent 均结构兼容）。 */
 export interface TimelineEvent {
@@ -109,4 +116,81 @@ export interface ContingencyBypassReport {
   nullCheck: NullCheckResult | null;
   imprintType: ImprintType | null;
   recheck: CandidateRecheck[];
+  /** R3-12「在场即回应」通道（观察期入账，不进判据）。恒为全 source 视野（关系级）——
+   *  間活动/显式在场无 source 可归，scoped 模式下也不随候选收窄。 */
+  presenceChannel: PresenceChannelStats;
+}
+
+// ── 在场即回应通道（R3-12 匿名卷独见：登录/在线是最慢的回应通道）──
+
+/** 在场即回应通道报数（观察期仪器：不进判据只进报数）。 */
+export interface PresenceChannelStats {
+  observation: true;
+  /** 判词 2026-09-07：观察期通道——不进 C_t/C_s、不进印刻分类、不进关窗判定。 */
+  excludedFromJudgment: true;
+  /** 节律窗（与 C_t 同窗：该配对回应间隔 P75）。 */
+  windowMs: number;
+  /** 信号总数（她的 user_msg 配对记录）。 */
+  nSignals: number;
+  /** 测量域：未获窗内文本回应的信号数（快通道已答的不属本通道）。 */
+  nUnanswered: number;
+  /** 未文本回应但窗内有住户在场痕迹的信号数（在场即回应的命中数）。 */
+  presenceOnly: number;
+  /** 未文本回应且观察窗内也无任何在场痕迹——「物理缺席端点」的镜像半边。
+   *  注意口径：超窗迟到回应在本窗内不算回应形态（它已计入 C_t 缺席数）。 */
+  absentInWindow: number;
+  /** presenceRate = presenceOnly / nUnanswered；域为空 = null（不猜）。 */
+  presenceRate: number | null;
+}
+
+/**
+ * 在场即回应通道：把「人在场」从信号缺席里单列出来。
+ *
+ * 在场源（三类「住户动了」的时间戳，观察期口径）：
+ *  - 显式 `presence` 事件（who=resident）——客户端壳提供登录/在线心跳时的载体；
+ *  - resident_msg 迟到回应（超出 C_t 节律窗但窗内到场——快通道缺席≠人在场缺席）；
+ *  - ma_product 間活动（写信/消化/打猎……住户内政的物理痕迹）。
+ *
+ * 测量域 = 未获窗内文本回应的信号（窗内文本回应已属 C_t 快通道，不重复计）。
+ * 预注册的观察期规则（R3-12：不许事后挑）：在场命中 = 痕迹时间戳落在
+ * (信号 ts, 信号 ts + 节律窗]；已知边界——同一痕迹可同时落在窗内相邻多条信号的
+ * 窗口里（按时间无主归属），观察期照实计入，判据化准入前随数据修订规则。
+ * **不进判据**：输出不进 C_t/C_s、不进 classifyImprintType、不进关窗判定——
+ * 观察期只报数，判据准入等真实运行期数据与预注册流程。
+ */
+export function residentPresenceChannel(
+  records: InteractionRecord[],
+  events: TimelineEvent[],
+  opts: { windowMs?: number } = {},
+): PresenceChannelStats {
+  const windowMs = opts.windowMs ?? responseWindowPercentile(records);
+  const markers = events
+    .filter(
+      (e) =>
+        (e.kind === "presence" && e.payload["who"] === "resident") ||
+        e.kind === "resident_msg" ||
+        e.kind === "ma_product",
+    )
+    .map((e) => e.ts)
+    .sort((a, b) => a - b);
+
+  let nUnanswered = 0, presenceOnly = 0, absentInWindow = 0;
+  for (const r of records) {
+    const repliedInWindow = r.residentReplyTs != null && r.residentReplyTs - r.userMsgTs <= windowMs;
+    if (repliedInWindow) continue; // 快通道已回应——不在本通道测量域
+    nUnanswered++;
+    const hasPresence = markers.some((m) => m > r.userMsgTs && m <= r.userMsgTs + windowMs);
+    if (hasPresence) presenceOnly++;
+    else absentInWindow++;
+  }
+  return {
+    observation: true,
+    excludedFromJudgment: true,
+    windowMs,
+    nSignals: records.length,
+    nUnanswered,
+    presenceOnly,
+    absentInWindow,
+    presenceRate: nUnanswered > 0 ? presenceOnly / nUnanswered : null,
+  };
 }

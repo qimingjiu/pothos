@@ -48,6 +48,7 @@ import type {
 import type { Clock } from "./clock.js";
 import {
   collectInteractionRecords,
+  residentPresenceChannel,
   type CandidateRecheck,
   type ContingencyBypassReport,
 } from "./core/contingency-log.js";
@@ -567,6 +568,12 @@ export class PothosService {
 
     const records = collectInteractionRecords(events, { sources: scoped ? handles : undefined });
     const global = contingencyReport(records);
+    // 在场即回应通道（R3-12 独见，观察期）：恒为全 source 关系级视野——
+    // 間活动/显式在场无 source 可归，不随印刻候选 scoped。
+    const allRecords = collectInteractionRecords(events);
+    const presenceChannel = residentPresenceChannel(allRecords, events, {
+      windowMs: global.ct.responseWindowMs || undefined,
+    });
 
     const recheck: CandidateRecheck[] = handles.map((handle) => {
       const own = collectInteractionRecords(events, { sources: [handle] });
@@ -595,6 +602,7 @@ export class PothosService {
       nullCheck: global.nullCheck,
       imprintType: global.imprintType,
       recheck,
+      presenceChannel,
     };
     await this.store.appendBenchRun({
       ts,
