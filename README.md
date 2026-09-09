@@ -207,6 +207,8 @@ Claude Code 挂载（`.mcp.json`）：
 - [declared 通道契约 v1](docs/declared-通道契约-v1.md)
 - [判官锚点集 v0](docs/judge-锚点集-v0.md)
 - [信件通道 v0（Huginn 投递面）](docs/mail-信件通道-v0.md)
+- [AI 操作手册：部署波索斯](docs/AI操作手册-部署波索斯.md)——给 AI 照着帮人类自助部署（公网网关 / 内网 / MCP 接入 / 手机端），含定名权纪律与验收清单
+- [AI 操作手册：Zeabur 部署与 MCP 接入](docs/AI操作手册-Zeabur部署与MCP接入.md)——Zeabur 一键部署（连 GitHub 即上线，免配 Docker/TLS）+ HTTP 模式接 MCP，不想折腾服务器者的最快路径
 - [视觉规范：雾中水培](docs/visual/index.html)
 
 ---
