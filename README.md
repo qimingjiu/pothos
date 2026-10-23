@@ -13,11 +13,15 @@
 - **不是**记忆引擎（记忆归衔枝；本引擎管「有所谓」，不管「我记得」）
 - **是**：一层有重量、可观测、属于模型自己的内在状态。事件溯源，状态 = fold(events)，无任何直接写状态的端点（写入路径最小化 = 端点物理缺席）。
 
+## 2026-10-23 运行修复
+
+已修复 tick 重放分歧、并发写入乱序、digest 沉积、活动门控、内嵌 MCP 节律和邮件恢复路径。升级前请读 [修复与恢复说明](docs/runtime-repair-2026-10-23.md)：旧版未记录的 tick 历史无法逆推，PostgreSQL 启动对账失败时应先预览恢复。
+
 ## 快速开始
 
 ```bash
 npm install
-npm test          # 验收测试全量（310 项：核心 + 不变量 + 加固 + SDK/MCP/declared/考场/网关/contingency/旁路/在场通道/判官锚点/信件通道/HTTP 传输/compose_letter/Seline 守夜负荷/判官入账 CLI；13 项 PG 验收未设 POTHOS_PG_URL 时自动跳过）
+npm test          # 全量验收；未设 POTHOS_PG_URL 时跳过 PostgreSQL 组
 npm run dev       # 开发模式（内存存储，数据不落盘）
 npm start         # 生产模式（需 POTHOS_PG_URL）
 ```

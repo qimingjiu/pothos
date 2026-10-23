@@ -129,9 +129,9 @@ describe("MCP · stdio 回环（spawn 真入口）", () => {
   });
 
   it("NDJSON 全流程：initialize → initialized → tools/list → tools/call（内嵌 memory 模式）", async () => {
-    child = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "src/mcp/main.ts"], {
+    child = spawn(process.execPath, ["--import", "tsx", "src/mcp/main.ts"], {
       cwd: fileURLToPath(new URL("../..", import.meta.url)),
-      env: { ...process.env, POTHOS_MCP_SIDE: "resident" },
+      env: { ...process.env, POTHOS_MCP_SIDE: "resident", POTHOS_PG_URL: "", DATABASE_URL: "", POTHOS_BASE_URL: "" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const rl = createInterface({ input: child.stdout! });

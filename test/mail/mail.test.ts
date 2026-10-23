@@ -345,7 +345,7 @@ function imapScript(mail: { inReplyTo: string | null; messageId: string; text: s
     const sp = line.indexOf(" ");
     const tag = sp > 0 ? line.slice(0, sp) : null;
     if (!tag || !/^a\d+$/.test(tag)) return null;
-    const c = line.slice(sp + 1);
+    const c = line.slice(sp + 1).replace(/^UID /, "");
     if (c.startsWith("LOGIN")) return `${tag} OK logged in`;
     if (c.startsWith("SELECT")) return `* 3 EXISTS\r\n${tag} OK selected`;
     if (c.startsWith("SEARCH")) return `${mail.inReplyTo ? "* SEARCH 1" : "* SEARCH"}\r\n${tag} OK done`;
@@ -436,6 +436,20 @@ describe("IMAP literal 解析", () => {
     expect(mails[0]!.inReplyTo).toBe("lt-1@pothos.local");
     expect(mails[0]!.messageId).toBe("her-reply-9");
     expect(mails[0]!.text).toBe("回信正文");
-    expect(socket.clientLines.some((l) => l.includes("+FLAGS"))).toBe(true);
+    expect(socket.clientLines.some((l) => l.includes("+FLAGS"))).toBe(false);
+  });
+});
+
+describe("poison outbox recovery", () => {
+  it("rejects invalid new drafts and quarantines a legacy bad row while sending the next", async () => {
+    const w = makeWorker({ hour: 10, smtpReply: makeSmtpScript("250 ok") });
+    await expect(w.worker.compose({ subject: "bad\r\nBcc: x@y", body: "x" })).rejects.toThrow("subject");
+    await expect(w.worker.compose({ subject: "bad", body: "<img src=x>" })).rejects.toThrow("text/plain");
+    expect(await w.store.listLettersByPhase(["composed"])).toEqual([]);
+    await w.store.insertLetter({ letterId: "legacy-bad", toAddr: "her@example.com", subject: "bad", body: "<img src=x>", composedTs: w.now - 1, messageId: "bad@pothos.local" });
+    const good = await w.worker.compose({ subject: "good", body: "正常信体", composedTs: w.now });
+    expect((await w.worker.poll()).sent).toBe(1);
+    expect((await w.store.getLetter("legacy-bad"))?.phase).toBe("held_manual");
+    expect((await w.store.getLetter(good!.letterId))?.phase).toBe("sent");
   });
 });

@@ -7,6 +7,7 @@
  * - 告警无方向字段（方向盲）。
  * 缺席即安全边界。
  */
+import { InputError } from "../serial.js";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -254,8 +255,8 @@ function registerActivityRoutes(app: Hono, svc: PothosService): void {
     if (!valid.includes(body["activity"] as MaActivity)) return c.text("invalid activity", 400);
     const res = await svc.recordMaActivity({
       activity: body["activity"] as MaActivity,
-      tokenCost: Number(body["tokenCost"] ?? 0),
-      quality: body["quality"] == null ? undefined : Number(body["quality"]),
+      tokenCost: typeof body["tokenCost"] === "number" ? body["tokenCost"] : NaN,
+      quality: body["quality"] == null ? undefined : typeof body["quality"] === "number" ? body["quality"] : NaN,
       content: typeof body["content"] === "string" ? body["content"] : undefined,
     });
     return c.json(res);
@@ -337,6 +338,11 @@ export function createApp(svc: PothosService, opts: { token?: string } = {}): Ho
   const app = new Hono();
   const token = opts.token ?? process.env["POTHOS_TOKEN"];
 
+  app.onError((error, c) => {
+    if (error instanceof InputError) return c.json({ error: error.message }, error.status);
+    console.error("[POTHOS] request failed", error);
+    return c.json({ error: "internal server error" }, 500);
+  });
   registerAuth(app, token);
   registerObservationRoutes(app, svc);
   registerIngestRoutes(app, svc);

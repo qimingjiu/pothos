@@ -18,12 +18,15 @@
  *
  * 注意：stdout 只承载协议行；任何日志一律 stderr。
  */
+import { startRuntime } from "../runtime.js";
 import { SystemClock } from "../clock.js";
 import { MemoryStore } from "../storage/memory.js";
 import { PostgresStore } from "../storage/postgres.js";
 import { PothosService } from "../service.js";
 import { PothosClient } from "../client/sdk.js";
 import { opsFromService, opsFromClient, runStdioMcp, type McpSide, type PothosOps } from "./server.js";
+
+let cleanup: (() => Promise<void>) | undefined;
 
 async function pickOps(): Promise<PothosOps> {
   const baseUrl = process.env["POTHOS_BASE_URL"];
@@ -43,12 +46,16 @@ async function pickOps(): Promise<PothosOps> {
   } else {
     process.stderr.write("[pothos-mcp] storage = memory（会话级，数据不落盘）\n");
   }
-  const svc = new PothosService(pg ?? new MemoryStore(), new SystemClock());
+  const store = pg ?? new MemoryStore();
+  const toAddr = process.env["POTHOS_MAIL_TO"];
+  const svc = new PothosService(store, new SystemClock(), toAddr ? { toAddr } : undefined);
   const boot = await svc.boot({ reconcile: Boolean(pg) });
   if (boot.mismatch) {
     process.stderr.write("[pothos-mcp][P0] 启动对账不一致——拒绝带病服务\n");
     process.exit(1);
   }
+  const runtime = startRuntime(svc);
+  cleanup = async () => { await runtime.stop(); await store.close(); };
   return opsFromService(svc);
 }
 
@@ -60,8 +67,12 @@ if (sideArg !== "resident" && sideArg !== "observer") {
 
 pickOps()
   .then((ops) => runStdioMcp({ side: sideArg, ops }))
-  .then(() => process.exit(0))
+  .then(async () => { await cleanup?.(); process.exit(0); })
   .catch((e) => {
     process.stderr.write(`[pothos-mcp] fatal: ${e instanceof Error ? e.stack : String(e)}\n`);
     process.exit(1);
   });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => { void (async () => { await cleanup?.(); process.exit(0); })().catch(() => process.exit(1)); });
+}

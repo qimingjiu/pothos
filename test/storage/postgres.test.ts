@@ -28,10 +28,10 @@ const d = url ? describe : describe.skip;
 d("PG 适配器 · 迁移与路径", () => {
   it("migrationsPath 解析到真实存在的 001_init.sql", () => {
     const p = migrationsPath(import.meta.url);
-    expect(p.replace(/\\/g, "/")).toContain("migrations/001_init.sql");
+    expect(p.replace(/\\/g, "/")).toMatch(/\/migrations$/);
     // 从 test/storage 出发 ../../ 应到仓库根——直接用适配器自身的 URL 验证
     const adapterUrl = new URL("../../src/storage/postgres.ts", import.meta.url).href;
-    expect(existsSync(migrationsPath(adapterUrl))).toBe(true);
+    expect(existsSync(`${migrationsPath(adapterUrl)}/001_init.sql`)).toBe(true);
   });
 });
 
@@ -41,7 +41,7 @@ d("PG 适配器 · 契约测试", () => {
   beforeAll(async () => {
     store = new PostgresStore(url!);
     // 干净的起点：先清表再跑迁移（migrate 幂等的隐含验收）
-    const tables = ["canary_runs", "bench_runs", "mailbox", "ma_ledger", "alerts", "param_changes", "params", "state_snapshots", "events"];
+    const tables = ["mail_inbox", "mail_outbox", "canary_runs", "bench_runs", "mailbox", "ma_ledger", "alerts", "param_changes", "params", "state_snapshots", "events"];
     for (const t of tables) await store["pool"].query(`DROP TABLE IF EXISTS ${t} CASCADE`);
     await store.migrate();
     await store.migrate(); // 第二次不抛错 = CREATE TABLE IF NOT EXISTS 幂等
@@ -160,6 +160,7 @@ d("PG 适配器 · 契约测试", () => {
     const ledger = await store.ledgerForDate("2026-01-03");
     expect(ledger.length).toBe(2);
     expect(ledger[0]!.activity).toBe("digest");
+    expect(ledger[0]!.budgetDate).toBe("2026-01-03");
     const since = await store.ledgerSince(1767400850000);
     expect(since.length).toBe(1);
 
@@ -199,6 +200,36 @@ d("PG 适配器 · 契约测试", () => {
     expect(boot.mismatch).toBe(false);
     expect(boot.reconciled).toBe(true);
     expect(stateHash(svc2.state)).toBe(liveHash);
+  });
+
+  it("durable inbox survives a new connection, duplicate delivery, and completion", async () => {
+    const row = { inboxKey: "pg-reply", messageId: "r@x", inReplyTo: "lt@x", from: "her@x", subject: "Re:", text: "中文回复", receivedTs: 1767400800123 };
+    await store.insertInbox(row);
+    const reopened = new PostgresStore(url!);
+    try {
+      expect(await reopened.pendingInbox()).toEqual([row]);
+      await reopened.insertInbox({ ...row, text: "duplicate must not replace original" });
+      expect(await reopened.pendingInbox()).toEqual([row]);
+      await reopened.completeInbox(row.inboxKey, row.receivedTs + 1);
+      await reopened.insertInbox(row);
+      expect(await reopened.pendingInbox()).toEqual([]);
+    } finally { await reopened.close(); }
+  });
+
+  it("non-grid ticks and concurrent event ingestion replay after a PG restart", async () => {
+    const clock = new ManualClock(1767400800000 + 20 * HOUR + 37);
+    const svc = new PothosService(store, clock);
+    expect((await svc.boot({ reconcile: true })).mismatch).toBe(false);
+    for (let i = 0; i < 5; i++) {
+      clock.advance(300123 + i);
+      await Promise.all([svc.runTick(), svc.ingest({ kind: "world", ts: clock.now() - 123, payload: {}, idempotencyKey: `pg-jitter-${i}` })]);
+    }
+    const reopened = new PostgresStore(url!);
+    try {
+      const fresh = new PothosService(reopened, clock);
+      expect((await fresh.boot({ reconcile: true })).mismatch).toBe(false);
+      expect(stateHash(fresh.state)).toBe(stateHash(svc.state));
+    } finally { await reopened.close(); }
   });
 
   it("foldedAt：cron tick 越过迟到事件后重启，重放仍逐位一致", async () => {

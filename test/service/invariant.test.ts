@@ -32,6 +32,11 @@ describe("服务层不变量：活状态 ≡ fold(events)", () => {
     const svc = new PothosService(new MemoryStore(), clock);
     await expectParity(svc, "出厂态");
 
+    // Explicitly calibrate optional activity gates before exercising the hunt path.
+    for (const [key, newValue] of [["B_daily", 100000], ["maSalienceTheta", 0]] as const) {
+      await svc.changeParam({ key, newValue, reason: "fixture", expectedEffect: "permit hunt", evaluationWindowMs: 0, rollbackCondition: "test end" });
+    }
+
     // 乱序到达：先 t+2h 再 t+1h（到达序 = 因果序，重放按 id 排列）
     await svc.ingest(rawEvent({ kind: "user_msg", ts: T0 + 2 * HOUR, source: "handle:she", payload: { valence: 0.6, contingency: 0.9 } }));
     await expectParity(svc, "乱序事件 1");

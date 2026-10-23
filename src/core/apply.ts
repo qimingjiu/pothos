@@ -44,6 +44,8 @@ export function applyEvent(
   ev: StoredEvent,
   contingency: ContingencyEstimator = new BaselineContingency(),
 ): ApplyResult {
+  if (ev.kind === "tick") return { contingencyStub: false, deposits: { s_attach: 0, s_base: 0, s_weave: 0 } };
+
   // 事件时间推进：不倒流
   if (ev.ts > st.t) st.t = ev.ts;
 
@@ -175,6 +177,10 @@ export function applyEvent(
         deposits.s_base = params.depositBaseGain * q * kappa * (w.val >= 0 ? 1 : -1);
         st.slow.s_base = clamp(st.slow.s_base + deposits.s_base, 0, params.slowCap);
       }
+    }
+    // v2 events use digest quality independently of interpersonal contingency.
+    // Historical events keep their original semantics when replayed.
+    if (ev.payload["dynamicsV"] === 2 || q >= params.depositTheta) {
       if (ev.kind === "ma_product" && String(ev.payload["activity"]) === "digest") {
         const q0 = clamp(Number(ev.payload["quality"] ?? 0.5), 0, 1);
         if (q0 >= params.maDigestQualityMin) {

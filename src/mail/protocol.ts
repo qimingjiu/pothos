@@ -10,6 +10,9 @@
  *
  * 测试纪律：socket 工厂可注入（脚本化字节序列），真网路径需部署凭据、不在测试里跑。
  */
+import { InputError } from "../serial.js";
+import { mimeText, parseHeaders } from "./mime.js";
+export { parseHeaders } from "./mime.js";
 import { connect as tlsConnect } from "node:tls";
 import type { Duplex } from "node:stream";
 
@@ -35,6 +38,17 @@ export function assertPlainText(body: string): void {
   }
 }
 
+export function assertLetterInput(input: { subject: string; body: string; letterId?: string; threadId?: string }): void {
+  if (typeof input.subject !== "string" || !input.subject.trim() || input.subject.length > 500 || /[\r\n\0]/.test(input.subject)) {
+    throw new InputError("invalid letter subject");
+  }
+  if (typeof input.body !== "string" || Buffer.byteLength(input.body) > 60 * 1024) throw new InputError("invalid letter body");
+  for (const id of [input.letterId, input.threadId]) {
+    if (id !== undefined && (typeof id !== "string" || !/^[A-Za-z0-9._@+-]{1,200}$/.test(id))) throw new InputError("invalid letter identifier");
+  }
+  try { assertPlainText(input.body); } catch { throw new InputError("信件正文只支持 text/plain，不接受 HTML/图像痕迹"); }
+}
+
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -50,11 +64,14 @@ export function rfc5322Date(ts: number): string {
 
 /** 构造 text/plain 信件（CRLF 行尾；点填充在 SMTP DATA 层做）。 */
 export function buildRfc2822(draft: LetterDraft): string {
-  assertPlainText(draft.body);
+  assertLetterInput({ subject: draft.subject, body: draft.body });
+  for (const value of [draft.from, draft.to, draft.messageId, draft.inReplyTo, draft.threadId]) {
+    if (value != null && /[\r\n\0]/.test(value)) throw new InputError("invalid mail header");
+  }
   const headers: string[] = [
     `From: ${draft.from}`,
     `To: ${draft.to}`,
-    `Subject: ${draft.subject}`,
+    `Subject: ${/[^\x20-\x7e]/.test(draft.subject) ? `=?UTF-8?B?${Buffer.from(draft.subject).toString("base64")}?=` : draft.subject}`,
     `Date: ${rfc5322Date(draft.composedTs)}`,
     `Message-ID: <${draft.messageId}>`,
   ];
@@ -63,7 +80,7 @@ export function buildRfc2822(draft: LetterDraft): string {
   }
   if (draft.threadId) headers.push(`X-Pothos-Thread: ${draft.threadId}`);
   headers.push("MIME-Version: 1.0", "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: 8bit");
-  return `${headers.join("\r\n")}\r\n\r\n${draft.body}\r\n`;
+  return `${headers.join("\r\n")}\r\n\r\n${draft.body.replace(/\r?\n/g, "\r\n")}\r\n`;
 }
 
 // ── MailSocket：字节级缓冲 + literal 感知读取 ──
@@ -227,7 +244,9 @@ export async function smtpSend(opts: SmtpSession, to: string, raw: string): Prom
 // ── IMAP（最小面：收未读 + 标已读，literal 字节级）──
 
 export interface FetchedMail {
+  /** Stable IMAP UID, scoped by uidValidity (not a sequence number). */
   seq: number;
+  uidValidity?: string;
   messageId: string | null;
   inReplyTo: string | null;
   from: string | null;
@@ -243,25 +262,9 @@ interface ImapSession {
   /** 收信白名单的 SEARCH 串（收信锁字面化：白名单外的信「从来不拿」，不是「拿了再删」）。
    *  例：`UNSEEN FROM "her@example.com" TO "me+pothos@gmail.com"`。缺省 UNSEEN。 */
   search?: string;
+  /** Must durably store the message before returning; only then set Seen. */
+  onMail?: (mail: FetchedMail) => Promise<void>;
   connectFn?: SocketFactory;
-}
-
-/** 头部解析：折叠行并入上一头；小写字段名。 */
-export function parseHeaders(raw: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  let last: string | null = null;
-  for (const line of raw.split(/\r?\n/)) {
-    if (/^[ \t]/.test(line) && last) {
-      out[last] += ` ${line.trim()}`;
-      continue;
-    }
-    const m = line.match(/^([\w-]+):\s*(.*)$/);
-    if (m) {
-      last = m[1]!.toLowerCase();
-      out[last] = m[2]!;
-    }
-  }
-  return out;
 }
 
 function stripAngle(v: string | undefined): string | null {
@@ -282,7 +285,7 @@ export async function imapFetchUnseen(opts: ImapSession): Promise<FetchedMail[]>
   const ms = new MailSocket(socket);
   const out: FetchedMail[] = [];
   let tag = 0;
-  const literals: string[] = [];
+  const literals: Buffer[] = [];
   const cmd = async (line: string): Promise<string[]> => {
     tag += 1;
     const t = `a${tag}`;
@@ -297,33 +300,53 @@ export async function imapFetchUnseen(opts: ImapSession): Promise<FetchedMail[]>
       }
       lines.push(l);
       const m = l.match(/\{(\d+)\}$/);
-      if (m) literals.push((await ms.readBytes(Number(m[1]))).toString("utf8"));
+      if (m) {
+        const size = Number(m[1]);
+        if (size > 2 * 1024 * 1024) throw new Error("IMAP literal too large");
+        literals.push(await ms.readBytes(size));
+      }
     }
   };
   try {
     const greet = await ms.readLine();
     if (!greet.startsWith("* ")) throw new Error(`IMAP greeting 异常：${greet.slice(0, 80)}`);
-    await cmd(`LOGIN ${opts.user} ${opts.pass}`);
-    await cmd(`SELECT INBOX`);
-    const searchLines = await cmd(`SEARCH ${opts.search ?? "UNSEEN"}`);
+    const quoted = (s: string): string => {
+      if (/[\r\n\0]/.test(s)) throw new Error("invalid IMAP credentials");
+      return `"${s.replace(/["\\]/g, "\\$&")}"`;
+    };
+    await cmd(`LOGIN ${quoted(opts.user)} ${quoted(opts.pass)}`);
+    const selected = await cmd(`SELECT INBOX`);
+    const uidValidity = selected.join(" ").match(/\[UIDVALIDITY (\d+)\]/i)?.[1];
+    const searchLines = await cmd(`UID SEARCH ${opts.search ?? "UNSEEN"}`);
     const searchLine = searchLines.find((l) => l.startsWith("* SEARCH ")) ?? "* SEARCH";
     const seqs = searchLine.slice("* SEARCH".length).trim().split(/\s+/).filter(Boolean);
     for (const seq of seqs) {
+      if (!/^\d+$/.test(seq)) throw new Error("invalid IMAP UID");
       literals.length = 0;
-      await cmd(`FETCH ${seq} (BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO FROM SUBJECT)])`);
-      const headers = parseHeaders(literals[0] ?? "");
+      await cmd(`UID FETCH ${seq} (BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO FROM SUBJECT CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`);
+      const headers = parseHeaders(literals[0]?.toString("utf8") ?? "");
       literals.length = 0;
-      await cmd(`FETCH ${seq} (BODY.PEEK[TEXT])`);
-      const text = literals[0] ?? "";
-      out.push({
+      await cmd(`UID FETCH ${seq} (BODY.PEEK[TEXT])`);
+      const body = literals[0]?.toString("latin1") ?? "";
+      let text: string;
+      try { text = mimeText(headers, body); } catch {
+        console.error(`[POTHOS] IMAP UID ${seq}: unsupported/malformed MIME; left unread`);
+        continue;
+      }
+      const mail: FetchedMail = {
+        uidValidity,
         seq: Number(seq),
         messageId: stripAngle(headers["message-id"]),
         inReplyTo: stripAngle(headers["in-reply-to"]),
         from: headers["from"] ?? null,
         subject: headers["subject"] ?? null,
-        text: text.trim(),
-      });
-      await cmd(`STORE ${seq} +FLAGS (\\Seen)`);
+        text,
+      };
+      out.push(mail);
+      if (opts.onMail) {
+        await opts.onMail(mail);
+        await cmd(`UID STORE ${seq} +FLAGS (\\Seen)`);
+      }
     }
     ms.write(`aLogout LOGOUT\r\n`);
   } finally {

@@ -45,9 +45,9 @@ export function tickTo(st: EngineState, nowMs: number, baseParams?: Params): Tic
   // 守卫只拦截病态参数（tickMs ≤ 0 等——校验边界之外的路径）。上限 1e6 步 ≈ 默认
   // 步长下 9.5 年的追赶，正常挂机恢复远够；耗尽即抛错，动力学失速不许静默截断。
   //
-  // 分片锚定 tickMs 绝对网格（batch-invariant）：噪声按「步」消耗，若按调用目标分片，
-  // cron 与事件交错产生的分片边界不在事件流里，重放无法复现噪声流（对账必然分歧）。
-  // 网格分片下 [tickTo(a), tickTo(b)] ≡ tickTo(b)，分片只由 (st.t, 目标) 决定。
+  // Absolute grid limits each integration step. Partial calls also consume noise:
+  // service timers therefore persist tick boundaries in the event stream. Replay
+  // must use those same boundaries; arbitrary partitions are not equivalent.
   let guard = 0;
   if (!(params.tickMs > 0) || !Number.isFinite(params.tickMs)) {
     throw new Error(`[POTHOS][P0] tickTo 病态参数：tickMs=${params.tickMs}——动力学失速，拒绝运行（守卫语义）`);

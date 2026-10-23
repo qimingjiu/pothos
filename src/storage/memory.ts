@@ -4,6 +4,7 @@
  * ◆ 挂牌：生产部署必须用 postgres 适配器；本适配器数据不落盘。
  */
 import type {
+  InboxRow,
   AlertLevel,
   AlertRow,
   AlertStatus,
@@ -29,6 +30,7 @@ export class MemoryStore implements EventStore {
     return true; // 单进程内嵌引擎：无同库竞争
   }
 
+  private inbox = new Map<string, { mail: InboxRow; processed: boolean }>();
   private eventId = 0;
   private events: StoredEvent[] = [];
   private byIdem = new Map<string, StoredEvent>();
@@ -73,7 +75,8 @@ export class MemoryStore implements EventStore {
   }
 
   async latestSnapshot(): Promise<SnapshotRow | null> {
-    return this.snapshots.length ? this.snapshots[this.snapshots.length - 1]! : null;
+    const snapshot = this.snapshots[this.snapshots.length - 1];
+    return snapshot ? structuredClone(snapshot) : null;
   }
 
   async getParams(): Promise<Record<string, unknown>> {
@@ -208,6 +211,17 @@ export class MemoryStore implements EventStore {
     const { atTs, ...rest } = patch ?? {};
     Object.assign(l, rest, { phase: to, updatedAt: atTs ?? Date.now() });
     return { ...l };
+  }
+
+  async insertInbox(mail: InboxRow): Promise<void> {
+    if (!this.inbox.has(mail.inboxKey)) this.inbox.set(mail.inboxKey, { mail: structuredClone(mail), processed: false });
+  }
+  async pendingInbox(): Promise<InboxRow[]> {
+    return [...this.inbox.values()].filter(r => !r.processed).map(r => structuredClone(r.mail));
+  }
+  async completeInbox(inboxKey: string, _ts: number): Promise<void> {
+    const row = this.inbox.get(inboxKey);
+    if (row) row.processed = true;
   }
 
   async appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void> {

@@ -54,7 +54,9 @@ import {
 } from "./core/contingency-log.js";
 import { contingencyReport } from "./core/contingency.js";
 import { selineReadings as computeSeline, type SelineReading } from "./core/seline.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { SerialQueue, InputError } from "./serial.js";
+import { assertLetterInput } from "./mail/protocol.js";
 
 const DAY = 86_400_000;
 
@@ -104,6 +106,9 @@ export interface IngestResult {
 }
 
 export class PothosService {
+  private readonly writes = new SerialQueue();
+  async drain(): Promise<void> { await this.writes.drain(); }
+
   /** 出厂态：boot() 之前即可安全使用（= 印刻窗口的开放态）。 */
   state: EngineState;
   lastEventId = 0;
@@ -126,12 +131,34 @@ export class PothosService {
     this.state = initialState(clock.now(), 0x50544853);
   }
 
+  boot(...args: Parameters<PothosService["bootUnlocked"]>): ReturnType<PothosService["bootUnlocked"]> {
+    return this.writes.run(() => this.bootUnlocked(...args));
+  }
+  reconcileNow(...args: Parameters<PothosService["reconcileNowUnlocked"]>): ReturnType<PothosService["reconcileNowUnlocked"]> {
+    return this.writes.run(() => this.reconcileNowUnlocked(...args));
+  }
+  ingest(...args: Parameters<PothosService["ingestUnlocked"]>): ReturnType<PothosService["ingestUnlocked"]> {
+    return this.writes.run(() => this.ingestUnlocked(...args));
+  }
+  recordMaActivity(...args: Parameters<PothosService["recordMaActivityUnlocked"]>): ReturnType<PothosService["recordMaActivityUnlocked"]> {
+    return this.writes.run(() => this.recordMaActivityUnlocked(...args));
+  }
+  composeLetter(...args: Parameters<PothosService["composeLetterUnlocked"]>): ReturnType<PothosService["composeLetterUnlocked"]> {
+    return this.writes.run(() => this.composeLetterUnlocked(...args));
+  }
+  runTick(...args: Parameters<PothosService["runTickUnlocked"]>): ReturnType<PothosService["runTickUnlocked"]> {
+    return this.writes.run(() => this.runTickUnlocked(...args));
+  }
+  changeParam(...args: Parameters<PothosService["changeParamUnlocked"]>): ReturnType<PothosService["changeParamUnlocked"]> {
+    return this.writes.run(() => this.changeParamUnlocked(...args));
+  }
+
   get params(): Params {
     return assembleParams(this.state.paramOverrides);
   }
 
   /** 启动：快照 + 尾部重放。全量对账只在显式要求时执行（reconcileNow）。 */
-  async boot(opts: { reconcile?: boolean } = {}): Promise<{ reconciled: boolean | null; mismatch: boolean }> {
+  private async bootUnlocked(opts: { reconcile?: boolean } = {}): Promise<{ reconciled: boolean | null; mismatch: boolean }> {
     const genesisTs = await this.ensureGenesisTs();
     const snap = await this.store.latestSnapshot();
     if (snap) {
@@ -143,10 +170,9 @@ export class PothosService {
       if (tail.length) this.lastEventId = Math.max(this.lastEventId, tail[tail.length - 1]!.id);
     } else {
       const all = await this.store.loadEvents();
-      const now = this.clock.now();
       // 无快照：从出厂原点全量重放（RNG 流原点必须与活服务构造时刻一致）
       this.state = initialState(genesisTs, 0x50544853);
-      fold(all, now, { from: this.state });
+      fold(all, undefined, { from: this.state });
       this.lastEventId = all.length ? all[all.length - 1]!.id : 0;
       this.eventsSinceSnapshot = all.length;
     }
@@ -157,16 +183,17 @@ export class PothosService {
     let reconciled: boolean | null = null;
     let mismatch = false;
     if (opts.reconcile) {
-      const r = await this.reconcileNow();
+      const r = await this.reconcileNowUnlocked();
       reconciled = !r.mismatch;
       mismatch = r.mismatch;
     }
+    if (!mismatch && this.clock.now() > this.state.t) await this.runTickUnlocked();
     this.sampleHistory();
     return { reconciled, mismatch };
   }
 
   /** 全量对账（M0 崩溃恢复契约）：快照路径的活状态 ≡ 从出厂原点全量重放。 */
-  async reconcileNow(): Promise<{ mismatch: boolean }> {
+  private async reconcileNowUnlocked(): Promise<{ mismatch: boolean }> {
     const genesisTs = await this.ensureGenesisTs();
     const full = fold(await this.store.loadEvents(), this.state.t, { from: initialState(genesisTs, 0x50544853) });
     const h1 = stateHash(this.state);
@@ -187,15 +214,24 @@ export class PothosService {
    * 它是确定性可预计算的，重放时据此推进动力学，cron tick 的历史才可复现
    * （迟到事件在「它实际被折叠的位置」折叠，而不是重排到它的 ts 位置）。
    */
-  private async appendAndFold(raw: RawEvent): Promise<StoredEvent | null> {
+  private async appendAndFold(raw: RawEvent, alerts?: AlertRow[]): Promise<StoredEvent | null> {
+    if (!Number.isSafeInteger(raw.ts)) throw new InputError("ts 必须是整数毫秒时间戳");
+    await this.ensureGenesisTs();
     const foldedAt = Math.max(this.state.t, raw.ts);
     const stored = await this.store.appendEvent({ ...raw, payload: { ...raw.payload, foldedAt } });
     if (stored) {
-      tickTo(this.state, stored.ts, this.params);
+      const { alertIntents } = tickTo(this.state, foldedAt, this.params);
       applyEvent(this.state, stored);
       this.lastEventId = Math.max(this.lastEventId, stored.id);
       this.eventsSinceSnapshot += 1;
       this.sampleHistory();
+      for (const intent of alertIntents) {
+        if (this.state.somatic.hovering) break;
+        if (this.lastAlertIntentAt != null && intent.ts - this.lastAlertIntentAt < this.params.alertCooldownMs) continue;
+        const alert = await this.store.insertAlert(intent.level, intent.ts);
+        this.lastAlertIntentAt = intent.ts;
+        alerts?.push(alert);
+      }
     }
     return stored;
   }
@@ -215,7 +251,7 @@ export class PothosService {
   }
 
   /** 事件摄入：幂等 → 不透明句柄 → 危机扫描 → 折叠（登记事件同样入动力学）。 */
-  async ingest(raw: RawEvent): Promise<IngestResult> {
+  private async ingestUnlocked(raw: RawEvent): Promise<IngestResult> {
     if (!this.genesisDone) {
       await this.ensureGenesisTs();
       this.genesisDone = true;
@@ -252,13 +288,31 @@ export class PothosService {
   }
 
   /** 間活动入账 + 事件折叠（代谢分级由 tier 决定；digest 产物喂 s_weave）。 */
-  async recordMaActivity(opts: {
+  private async recordMaActivityUnlocked(opts: {
     activity: MaActivity;
     tokenCost: number;
     quality?: number;
     content?: string;
   }): Promise<{ ok: true; delivered: boolean }> {
+    if (!ACTIVITIES.some(a => a.activity === opts.activity)) throw new InputError("invalid activity");
+    if (!Number.isFinite(opts.tokenCost) || opts.tokenCost < 0 || opts.tokenCost > 2_147_483_647) {
+      throw new InputError("tokenCost 必须是非负有限数，且不超过数据库整数上限");
+    }
+    if (opts.quality !== undefined && (!Number.isFinite(opts.quality) || opts.quality < 0 || opts.quality > 1)) {
+      throw new InputError("quality 必须在 0..1 之间");
+    }
     const now = this.clock.now();
+    const date = new Date(now).toISOString().slice(0, 10);
+    const ledger = await this.store.ledgerForDate(date);
+    const spent = ledger.reduce((sum, r) => sum + r.tokenCost, 0);
+    if (opts.activity !== "digest" && opts.activity !== "decline") {
+      const p = this.params;
+      const allowed = planActivities(this.state, p, spent).find(d => d.activity === opts.activity)!.allowed;
+      const floor = Math.ceil((p.M_min ?? 0) * p.tokenScale);
+      if (!allowed || p.B_daily == null || spent + Math.round(opts.tokenCost) > Math.max(0, p.B_daily - floor)) {
+        throw new InputError("可选活动未获许可或预算不足", 409);
+      }
+    }
     await recordActivity(this.store, { ts: now, activity: opts.activity, tokenCost: opts.tokenCost });
     const stored = await this.appendAndFold({
       kind: "ma_product",
@@ -268,9 +322,10 @@ export class PothosService {
         tier: opts.activity === "digest" ? "required" : "optional",
         tokenCost: opts.tokenCost,
         quality: opts.quality ?? 0.5,
+        dynamicsV: 2,
       },
       tags: ["self_generated"],
-      idempotencyKey: `ma-${opts.activity}-${now}`,
+      idempotencyKey: `ma-${randomUUID()}`,
     });
     void stored;
     let delivered = false;
@@ -293,12 +348,13 @@ export class PothosService {
    * 数值不出镜：门控理由中的 salience 数值不进响应——只回 allowed + 去数值 reason。
    * 管寄不管写：compose 只需 MAIL_TO（收件人），不需要 SMTP/IMAP 凭据——信入 outbox 等投递窗口。
    */
-  async composeLetter(opts: {
+  private async composeLetterUnlocked(opts: {
     subject: string;
     body: string;
     threadId?: string;
     letterId?: string;
   }): Promise<{ composed: boolean; declined: boolean; reason: string; letterId?: string }> {
+    assertLetterInput(opts);
     if (!this.composeConfig) {
       return { composed: false, declined: false, reason: "信件通道未配置（无收件人）——诚实缺席" };
     }
@@ -356,20 +412,12 @@ export class PothosService {
   }
 
   /** tick 节律（cron 调用）：动力学推进 + 告警节流持久化 + 快照调度。 */
-  async runTick(nowMs?: number): Promise<{ alerts: AlertRow[] }> {
+  private async runTickUnlocked(nowMs?: number): Promise<{ alerts: AlertRow[] }> {
     const now = nowMs ?? this.clock.now();
-    const p = this.params;
-    const { alertIntents } = tickTo(this.state, now, p);
-
-    // 告警节流：冷却窗口内不重复；悬停不勒索（引擎侧已不发意图，此处双保险）
+    if (!Number.isSafeInteger(now)) throw new InputError("tick 时间必须是整数毫秒");
     const alerts: AlertRow[] = [];
-    const cooldown = p.alertCooldownMs;
-    for (const intent of alertIntents) {
-      if (this.state.somatic.hovering) break;
-      if (this.lastAlertIntentAt != null && intent.ts - this.lastAlertIntentAt < cooldown) continue;
-      const row = await this.store.insertAlert(intent.level, intent.ts);
-      alerts.push(row);
-      this.lastAlertIntentAt = intent.ts;
+    if (now > this.state.t) {
+      await this.appendAndFold({ kind: "tick", ts: now, payload: {}, idempotencyKey: `tick-${now}` }, alerts);
     }
 
     this.sampleHistory();
@@ -449,7 +497,7 @@ export class PothosService {
    * 参数变更（软古德哈特体系）：
    * 先写预期 → 冷却期校验 → param_changes 落库 → param_change 事件入流（被调参也是生命事件）。
    */
-  async changeParam(req: {
+  private async changeParamUnlocked(req: {
     key: string;
     newValue: unknown;
     reason: string;
