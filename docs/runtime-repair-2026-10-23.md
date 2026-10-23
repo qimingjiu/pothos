@@ -19,7 +19,7 @@
 | F11 MIME 未解码 | 支持 base64、quoted-printable、声明字符集和嵌套 multipart 的 text/plain；附件、HTML-only、无法解码邮件保持未读并记日志。 |
 | F12 干净检出测试失败 | 使用原创小型考场夹具，协议解析测试不依赖忽略目录内的数据；真实考试仍需独立取得完整数据。 |
 
-额外修复：内存存储返回快照副本，避免恢复过程修改已保存快照；PG 预算日期用 SQL text 返回，避免 Date 对象字符串截断；升级 Hono 至 4.13.13。GitHub Actions 使用 Node 22 / PostgreSQL 16，运行类型检查、全部测试与生产依赖审计。
+额外修复：内存存储返回快照副本，避免恢复过程修改已保存快照；PG 预算日期用 SQL text 返回，避免 Date 对象字符串截断；升级 Hono 至 4.13.13。GitHub Actions 使用 Node 22 / PostgreSQL 16，运行类型检查、全部测试与全依赖审计。
 
 ## 升级与旧快照恢复
 
@@ -44,8 +44,8 @@ npm run recover -- --apply <preview-token> --reason "reviewed legacy tick drift;
 
 ## 验证边界
 
-- 本地：类型检查通过，334 项测试通过；15 项 PostgreSQL 测试由 CI 在真实 PostgreSQL 16 上执行。本地无 PostgreSQL。
-- `npm audit --omit=dev`：本次检查为 0 个已知漏洞。
+- 本地：类型检查通过，334 项测试通过；CI 在 Node 22 / 真实 PostgreSQL 16 下，全部 349 项测试通过，其中 PostgreSQL 验收 15 项。
+- Hono 与测试工具链均更新到已修复版本；`npm audit` 覆盖生产和开发依赖，本次检查为 0 个已知漏洞。
 - 邮件协议、崩溃恢复与重复回复使用脚本化 socket；没有发送真实邮件，也没有使用生产凭据。
 - SMTP 接收成功到本地记录成功之间仍存在崩溃窗口；邮件提供商不支持与本地数据库事务绑定，不能承诺恰好一次投递。遇到投递结果不明，应核对 Message-ID 与提供商记录。
 - 收信未知 contingency 仍是 unknown。普通邮件/MCP 文本不会自动获得测量分数，现有旁路测量不参与 fold；印刻和依恋增长所需的测量接线是既有设计缺口，本次没有伪造估值来掩盖它。
