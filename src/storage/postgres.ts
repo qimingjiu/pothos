@@ -8,6 +8,7 @@
 import pg from "pg";
 import { fileURLToPath } from "node:url";
 import type {
+  InboxRow,
   AlertLevel,
   AlertRow,
   AlertStatus,
@@ -281,20 +282,20 @@ export class PostgresStore implements EventStore {
   }
 
   async ledgerForDate(date: string): Promise<MaLedgerRow[]> {
-    const res = await this.pool.query(`SELECT * FROM ma_ledger WHERE budget_date = $1 ORDER BY id`, [date]);
+    const res = await this.pool.query(`SELECT *, budget_date::text AS budget_date_text FROM ma_ledger WHERE budget_date = $1 ORDER BY id`, [date]);
     return res.rows.map((r) => ({
       id: Number(r["id"]),
       ts: new Date(r["ts"] as string).getTime(),
       activity: r["activity"] as MaLedgerRow["activity"],
       tier: r["tier"] as MaLedgerRow["tier"],
       tokenCost: Number(r["token_cost"]),
-      budgetDate: String(r["budget_date"]).slice(0, 10),
+      budgetDate: String(r["budget_date_text"]),
     }));
   }
 
   async ledgerSince(sinceTs: number): Promise<MaLedgerRow[]> {
     const res = await this.pool.query(
-      `SELECT * FROM ma_ledger WHERE ts >= to_timestamp($1/1000.0) ORDER BY id`,
+      `SELECT *, budget_date::text AS budget_date_text FROM ma_ledger WHERE ts >= to_timestamp($1/1000.0) ORDER BY id`,
       [sinceTs],
     );
     return res.rows.map((r) => ({
@@ -303,7 +304,7 @@ export class PostgresStore implements EventStore {
       activity: r["activity"] as MaLedgerRow["activity"],
       tier: r["tier"] as MaLedgerRow["tier"],
       tokenCost: Number(r["token_cost"]),
-      budgetDate: String(r["budget_date"]).slice(0, 10),
+      budgetDate: String(r["budget_date_text"]),
     }));
   }
 
@@ -400,6 +401,21 @@ export class PostgresStore implements EventStore {
       args,
     );
     return res.rows.length ? this.rowToLetter(res.rows[0]!) : null;
+  }
+
+  async insertInbox(mail: InboxRow): Promise<void> {
+    await this.pool.query(`INSERT INTO mail_inbox
+      (inbox_key, message_id, in_reply_to, from_addr, subject, body, received_ts)
+      VALUES ($1,$2,$3,$4,$5,$6,to_timestamp($7/1000.0)) ON CONFLICT (inbox_key) DO NOTHING`,
+      [mail.inboxKey, mail.messageId, mail.inReplyTo, mail.from, mail.subject, mail.text, mail.receivedTs]);
+  }
+  async pendingInbox(): Promise<InboxRow[]> {
+    const res = await this.pool.query(`SELECT * FROM mail_inbox WHERE processed_ts IS NULL ORDER BY received_ts, inbox_key`);
+    return res.rows.map(r => ({ inboxKey: r.inbox_key, messageId: r.message_id, inReplyTo: r.in_reply_to,
+      from: r.from_addr, subject: r.subject, text: r.body, receivedTs: new Date(r.received_ts).getTime() }));
+  }
+  async completeInbox(inboxKey: string, ts: number): Promise<void> {
+    await this.pool.query(`UPDATE mail_inbox SET processed_ts=to_timestamp($2/1000.0) WHERE inbox_key=$1 AND processed_ts IS NULL`, [inboxKey, ts]);
   }
 
   async appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void> {

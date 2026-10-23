@@ -125,6 +125,16 @@ export interface NewLetterRow {
   messageId: string;
 }
 
+export interface InboxRow {
+  inboxKey: string;
+  messageId: string | null;
+  inReplyTo: string | null;
+  from: string | null;
+  subject: string | null;
+  text: string;
+  receivedTs: number;
+}
+
 export interface EventStore {
   readonly kind: "memory" | "postgres";
 
@@ -172,6 +182,10 @@ export interface EventStore {
   /** 状态机单步推进（幂等：同 letterId+expectedPhase 才动；并发/重放安全）。
    *  patch.atTs = 显式推进时刻（测试确定性；缺省 = 存储层时钟）。 */
   transitionLetter(letterId: string, from: LetterPhase, to: LetterPhase, patch?: Partial<Pick<LetterRow, "sentTs" | "bounceReason" | "replyMessageId" | "attemptCount" | "threadId">> & { atTs?: number }): Promise<LetterRow | null>;
+
+  insertInbox(mail: InboxRow): Promise<void>;
+  pendingInbox(): Promise<InboxRow[]>;
+  completeInbox(inboxKey: string, ts: number): Promise<void>;
 
   // ── 评测台与金丝雀 ──
   appendBenchRun(run: Omit<BenchRunRow, "id">): Promise<void>;

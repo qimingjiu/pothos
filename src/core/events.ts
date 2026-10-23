@@ -6,6 +6,7 @@
  */
 
 export type EventKind =
+  | "tick" // 内部时间边界，持久化 timer 分段；不接受外部写入
   | "user_msg" // 她的输入（主燃料）
   | "resident_msg" // 住户表达（declared 通道的原料，由客户端打标回传）
   | "world" // 世界事件（杂食格：她不是唯一燃料）

@@ -15,6 +15,6 @@ USER node
 EXPOSE 7788
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.POTHOS_PORT||7788)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.POTHOS_PORT||7788)+'/healthz',{headers:process.env.POTHOS_TOKEN?{Authorization:'Bearer '+process.env.POTHOS_TOKEN}:{}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["./node_modules/.bin/tsx", "src/server/main.ts"]

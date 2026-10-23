@@ -11,9 +11,11 @@
  * 进程死在中间重启续跑）/ quiet_hours（管寄不管写——Date 与投递两个时间都真）/ 
  * 独立配额（maxAttempts 退避上限，放弃→held_manual 诚实挂起，不假装发出）。
  */
-import { randomBytes } from "node:crypto";
+import { SerialQueue } from "../serial.js";
+import { randomBytes, createHash } from "node:crypto";
 import {
   buildRfc2822,
+  assertLetterInput,
   assertPlainText,
   imapFetchUnseen,
   smtpSend,
@@ -109,7 +111,11 @@ export interface PollReport {
   held: number;
   bounced: number;
   failedRetry: number;
-}export class MailWorker {
+}
+export class MailWorker {
+  private readonly work = new SerialQueue();
+  poll(): Promise<PollReport> { return this.work.run(() => this.pollUnlocked()); }
+  pollReplies(): Promise<{ replies: number; unclaimed: number }> { return this.work.run(() => this.pollRepliesUnlocked()); }
   constructor(private readonly d: MailWorkerDeps) {}
 
   /** 投递窗口判断（她的时区 = 引擎主机时区口径；窗口跨午夜合法）。 */
@@ -123,6 +129,7 @@ export interface PollReport {
 
   /** 住户侧创作入账：outbox 登记（幂等）+ composed 事件（零冲量）。 */
   async compose(input: LetterComposeInput): Promise<LetterRow | null> {
+    assertLetterInput(input);
     const composedTs = input.composedTs ?? this.d.clock();
     const letterId = input.letterId ?? `lt-${composedTs}-${randomBytes(4).toString("hex")}`;
     const messageId = `${letterId}@pothos.local`;
@@ -180,7 +187,7 @@ export interface PollReport {
    *  - 窗内到期 → SMTP 投递：2xx → sent；5xx → bounced（确知事件）；4xx/网络 → 退避重试；
    *  - 尝试数超上限 → held_manual（诚实放弃，人工面，不假装发出）。
    */
-  async poll(): Promise<PollReport> {
+  private async pollUnlocked(): Promise<PollReport> {
     const report: PollReport = { sent: 0, held: 0, bounced: 0, failedRetry: 0 };
     const now = this.d.clock();
     const pending = await this.d.store.listLettersByPhase(["composed", "held"]);
@@ -194,9 +201,10 @@ export interface PollReport {
       }
       const backoff = MailWorker.retryBackoffMs(l.attemptCount);
       if (l.attemptCount > 0 && now < l.updatedAt + backoff) continue; // 退避未到期
-      const raw = this.buildRaw(l);
+      let raw: string;
       // 发信 Final Policy Check（投递层不放过——构造层只生成这一个收件人，这里再断言一次）
       try {
+        raw = this.buildRaw(l);
         assertSendPolicy(l, raw, this.d.cfg);
       } catch (e) {
         await this.d.store.transitionLetter(l.letterId, l.phase, "held_manual", {
@@ -250,38 +258,41 @@ export interface PollReport {
    * 她的话按 user_msg 入流（幂等键 = 回信 Message-ID——进程死在中间重投安全）。
    * 陌生 Message-ID 不冒认（只认自己发出的信）。
    */
-  async pollReplies(): Promise<{ replies: number; unclaimed: number }> {
-    const mails: FetchedMail[] = await imapFetchUnseen({ ...this.d.cfg.imap, search: this.searchQuery(), connectFn: this.d.socketFn });
+  private async pollRepliesUnlocked(): Promise<{ replies: number; unclaimed: number }> {
+    // Retry durable work first, even if IMAP is offline on this polling cycle.
+    const report = await this.drainInbox();
+    await imapFetchUnseen({ ...this.d.cfg.imap, search: this.searchQuery(), connectFn: this.d.socketFn,
+      onMail: async mail => {
+        if (!mail.messageId && !mail.uidValidity) throw new Error("IMAP message needs Message-ID or UIDVALIDITY for durable deduplication");
+        const identity = mail.messageId ?? `uid:${mail.uidValidity}:${mail.seq}`;
+        const inboxKey = createHash("sha256").update(`${this.d.cfg.imap.host}|${this.d.cfg.imap.user}|${identity}`).digest("hex");
+        await this.d.store.insertInbox({ inboxKey, messageId: mail.messageId, inReplyTo: mail.inReplyTo,
+          from: mail.from, subject: mail.subject, text: mail.text, receivedTs: this.d.clock() });
+      },
+    });
+    const fresh = await this.drainInbox();
+    return { replies: report.replies + fresh.replies, unclaimed: report.unclaimed + fresh.unclaimed };
+  }
+
+  private async drainInbox(): Promise<{ replies: number; unclaimed: number }> {
     let replies = 0, unclaimed = 0;
-    for (const mail of mails) {
-      if (!mail.inReplyTo) { unclaimed += 1; continue; }
-      const letter = await this.d.store.getLetterByMessageId(mail.inReplyTo);
-      if (!letter) { unclaimed += 1; continue; } // 不是我们的信——不配对不叙事
-      if (letter.phase === "replied") continue; // 已闭环——幂等重投不重复入账
-      const before = await this.d.store.getLetter(letter.letterId);
-      const moved = await this.d.store.transitionLetter(letter.letterId, letter.phase, "replied", {
-        replyMessageId: mail.messageId,
-      });
-      if (moved) {
-        await this.d.ingest({
-          kind: "letter",
-          ts: this.d.clock(),
-          payload: { phase: "replied", letterId: letter.letterId, replyMessageId: mail.messageId, threadId: letter.threadId },
-          idempotencyKey: `letter-${letter.letterId}-replied-${mail.messageId}`,
-        });
-        // 她的回信是她的输入（主燃料）：source = 邮件句柄（ingest 侧统一不透明哈希）
-        await this.d.ingest({
-          kind: "user_msg",
-          ts: this.d.clock(),
-          source: `email:${this.d.cfg.toAddr}`,
-          payload: { text: mail.text, threadId: letter.threadId ?? null, letterId: letter.letterId },
-          idempotencyKey: `mail-reply-${mail.messageId ?? mail.seq}`,
-        });
-        replies += 1;
-      } else {
-        // 同相/已 replied：幂等重投——不重复入账
-        void before;
+    for (const mail of await this.d.store.pendingInbox()) {
+      const letter = mail.inReplyTo ? await this.d.store.getLetterByMessageId(mail.inReplyTo) : null;
+      if (!letter || !["sent", "replied"].includes(letter.phase)) {
+        // A send may have succeeded just before its outbox status update failed.
+        // Keep matched but not-yet-sent letters pending instead of discarding replies.
+        if (letter) continue;
+        await this.d.store.completeInbox(mail.inboxKey, this.d.clock()); unclaimed++; continue;
       }
+      await this.d.ingest({ kind: "letter", ts: mail.receivedTs,
+        payload: { phase: "replied", letterId: letter.letterId, replyMessageId: mail.messageId, threadId: letter.threadId },
+        idempotencyKey: `letter-${letter.letterId}-replied-${mail.inboxKey}` });
+      await this.d.ingest({ kind: "user_msg", ts: mail.receivedTs, source: `email:${this.d.cfg.toAddr}`,
+        payload: { text: mail.text, threadId: letter.threadId ?? null, letterId: letter.letterId },
+        idempotencyKey: mail.messageId ? `mail-reply-${mail.messageId}` : `mail-reply-${mail.inboxKey}` });
+      await this.d.store.transitionLetter(letter.letterId, letter.phase, "replied", { replyMessageId: mail.messageId, atTs: this.d.clock() });
+      await this.d.store.completeInbox(mail.inboxKey, this.d.clock());
+      replies++;
     }
     return { replies, unclaimed };
   }

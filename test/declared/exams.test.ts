@@ -56,8 +56,8 @@ describe("考场数据解析", () => {
   });
 
   it("EmoBench：MCQ 提示词与字母解析（含越界字母拒绝）", () => {
-    const items = loadEmoBench("exams/data");
-    expect(items.length).toBe(1200); // EU 400×2 + EA 400
+    const items = loadEmoBench("test/fixtures");
+    expect(items.length).toBe(3); // original local fixture: EU emotion/cause + EA
     const item = items[0]!;
     const p = mcqPrompt(item);
     expect(p).toContain('{"answer":"A"}');
